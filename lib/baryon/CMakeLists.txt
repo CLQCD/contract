@@ -1,3 +1,3 @@
-add_library(baryon STATIC baryon.cu baryon_ik_jl_mn.cu baryon_ik_jn_ml.cu baryon_il_jk_mn.cu baryon_il_jn_mk.cu baryon_in_jk_ml.cu baryon_in_jl_mk.cu)
+add_library(baryon STATIC baryon_ik_jl_mn.cu baryon_ik_jn_ml.cu baryon_il_jk_mn.cu baryon_il_jn_mk.cu baryon_in_jk_ml.cu baryon_in_jl_mk.cu)
 set_property(TARGET baryon PROPERTY POSITION_INDEPENDENT_CODE  ON)
 target_link_libraries(baryon PUBLIC CUDA::cudart)
