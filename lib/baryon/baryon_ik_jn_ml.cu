@@ -10,6 +10,7 @@ void baryon_ik_jn_ml(void *correl, void *propag_i, void *propag_j, void *propag_
 
   Arguments args_h = {correl, propag_i, propag_m, propag_j, volume, gamma_ij, gamma_kl, gamma_mn};
   CUDA_ERROR_CHECK(cudaMemcpyToSymbol(args, &args_h, sizeof(Arguments)));
-
   CUDA_ERROR_CHECK(cudaLaunchKernel(instantiate<IK_JN_ML>(gamma_kl), gridDim, blockDim, {}));
+
+  return;
 }

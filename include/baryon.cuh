@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cuda_runtime.h>
-#include <cuda/std/complex>
+#include <thrust/complex.h>
 #include "contract.h"
 
 const int Ns = 4;
@@ -9,7 +9,7 @@ const int Nc = 3;
 const int BLOCK_SIZE = 64;
 const int TILE_SIZE = BLOCK_SIZE / (Ns * Ns);
 
-typedef cuda::std::complex<double> Complex128;
+typedef thrust::complex<double> Complex128;
 
 struct Arguments {
   void *correl;
@@ -314,6 +314,8 @@ template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon()
     static_cast<Complex128 *>(args.correl)[offset] = correl[idx0][idx1];
   }
   __syncthreads();
+
+  return;
 }
 
 template <BaryonContractType CONTRACT, int GAMMA> void *instantiate()

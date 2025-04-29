@@ -19,6 +19,8 @@ void baryon_two_point(void *correl, void *propag_i, void *propag_j, void *propag
   case IN_JL_MK: baryon_in_jl_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
   default: break;
   }
+
+  return;
 }
 
 void proton(void *correl, void *propag_i, void *propag_j, void *propag_m, int contract_type, size_t volume,
@@ -56,6 +58,12 @@ void proton(void *correl, void *propag_i, void *propag_j, void *propag_m, int co
   CUDA_ERROR_CHECK(cudaEventDestroy(stop));
 
   // CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+
+  return;
 }
 
-void init(int device) { CUDA_ERROR_CHECK(cudaSetDevice(device)); }
+void init(int device)
+{
+  CUDA_ERROR_CHECK(cudaSetDevice(device));
+  return;
+}
