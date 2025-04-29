@@ -34,6 +34,15 @@ void proton(void *correl, void *propag_i, void *propag_j, void *propag_m, int co
   cudaEvent_t start, stop;
   CUDA_ERROR_CHECK(cudaEventCreate(&start));
   CUDA_ERROR_CHECK(cudaEventCreate(&stop));
+  switch ((BaryonContractType)contract_type) {
+  case IK_JL_MN: baryon_ik_jl_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
+  case IK_JN_ML: baryon_ik_jn_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
+  case IL_JK_MN: baryon_il_jk_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
+  case IL_JN_MK: baryon_il_jn_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
+  case IN_JK_ML: baryon_in_jk_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
+  case IN_JL_MK: baryon_in_jl_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
+  default: break;
+  }
   CUDA_ERROR_CHECK(cudaEventRecord(start));
   CUDA_ERROR_CHECK(cudaEventSynchronize(start));
   for (int i = 0; i < 100; ++i) {
