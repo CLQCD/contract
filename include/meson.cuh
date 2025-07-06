@@ -1,0 +1,73 @@
+#pragma once
+
+#include <contract.h>
+#include <gamma.cuh>
+
+const unsigned int Ns = 4;
+const unsigned int Nc = 3;
+const unsigned int BLOCK_SIZE = 64;
+const unsigned int TILE_SIZE = BLOCK_SIZE / (Ns * Ns);
+
+struct Arguments {
+  void *correl;
+  void *propag_a;
+  void *propag_b;
+  size_t volume;
+  int gamma_ab;
+  int gamma_dc;
+};
+
+__constant__ Arguments args {};
+
+__global__ void meson_kernel()
+{
+  // const size_t volume = args.volume;
+  const size_t x_block = blockIdx.x * TILE_SIZE;
+  const int thread_id = threadIdx.x;
+  const int idx0 = threadIdx.x / (Ns * Ns);
+  const int idx1 = threadIdx.x % (Ns * Ns);
+
+  __shared__ Complex128 propag_a[TILE_SIZE][Ns * Ns][Nc * Nc];
+  __shared__ Complex128 propag_b[TILE_SIZE][Ns * Ns][Nc * Nc];
+  __shared__ Complex128 correl[TILE_SIZE][Ns * Ns];
+  correl[idx0][idx1] = 0;
+
+  size_t offset = x_block * (Ns * Ns * Nc * Nc);
+  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
+    int x = pos / (Ns * Ns * Nc * Nc);
+    int AB = pos / (Nc * Nc) % (Ns * Ns);
+    int ab = pos % (Nc * Nc);
+    propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
+    propag_b[x][AB][ab] = conj(static_cast<Complex128 *>(args.propag_b)[offset + pos]);
+  }
+  __syncthreads();
+
+  int AD = idx1;
+  int A = AD / Ns;
+  int D = AD % Ns;
+  int B = gamma_index(args.gamma_ab, A);
+  Complex128 gamma_ij_data = gamma_gamma5_data(args.gamma_ab, A);
+  int C = gamma_index(args.gamma_dc, D);
+  Complex128 gamma_kl_data = gamma_gamma5_data(args.gamma_dc, D);
+  int CB = C * Ns + B;
+  Complex128 tmp = 0;
+  for (int a = 0; a < Nc; ++a) {
+    for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][CB][a * Nc + b]; }
+  }
+  correl[idx0][idx1] = gamma_ij_data * gamma_kl_data * tmp;
+  __syncthreads();
+
+  if (idx1 < 8) { correl[idx0][idx1] += correl[idx0][idx1 + 8]; }
+  __syncthreads();
+  if (idx1 < 4) { correl[idx0][idx1] += correl[idx0][idx1 + 4]; }
+  __syncthreads();
+  if (idx1 < 2) { correl[idx0][idx1] += correl[idx0][idx1 + 2]; }
+  __syncthreads();
+  if (idx1 < 1) {
+    correl[idx0][idx1] += correl[idx0][idx1 + 1];
+    static_cast<Complex128 *>(args.correl)[x_block + idx0] = correl[idx0][idx1];
+  }
+  __syncthreads();
+
+  return;
+}

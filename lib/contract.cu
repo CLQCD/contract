@@ -1,15 +1,56 @@
 #include <cuda_runtime.h>
 #include <contract.h>
-#include <baryon.cuh>
+#include <baryon.h>
+#include <meson.h>
 
-void baryon_two_point(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
-                      size_t volume, int gamma_ij, int gamma_kl, int gamma_mn)
+void meson_two_point(void *correl, void *propag_a, void *propag_b, size_t volume, int gamma_ab, int gamma_dc)
 {
-  if (volume % TILE_SIZE != 0) {
-    fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
-    exit(-1);
-  }
+  meson::launch(correl, propag_a, propag_b, volume, gamma_ab, gamma_dc);
+  return;
+}
 
+void meson_all_source_two_point(void **correl, void *propag_a, void *propag_b, size_t volume, int gamma_ab)
+{
+  meson_all_source::launch(correl, propag_a, propag_b, volume, gamma_ab);
+  return;
+}
+
+void meson_all_sink_two_point(void **correl, void *propag_a, void *propag_b, size_t volume, int gamma_dc)
+{
+  meson_all_sink::launch(correl, propag_a, propag_b, volume, gamma_dc);
+  return;
+}
+
+void baryon_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c, BaryonContractType contract_type,
+                      size_t volume, int gamma_ab, int gamma_de, int gamma_fc)
+{
+  switch (contract_type) {
+  case AD_BE_CF:
+    baryon::launch<AD_BE_CF>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
+    break;
+  case AD_BF_CE:
+    baryon::launch<AD_BF_CE>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
+    break;
+  case AE_BD_CF:
+    baryon::launch<AE_BD_CF>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
+    break;
+  case AE_BF_CD:
+    baryon::launch<AE_BF_CD>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
+    break;
+  case AF_BD_CE:
+    baryon::launch<AF_BD_CE>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
+    break;
+  case AF_BE_CD:
+    baryon::launch<AF_BE_CD>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
+    break;
+  default: break;
+  }
+  return;
+}
+
+void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
+                         size_t volume, int gamma_ij, int gamma_kl, int gamma_mn)
+{
   switch (contract_type) {
   case IK_JL_MN: baryon_ik_jl_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
   case IK_JN_ML: baryon_ik_jn_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
@@ -19,55 +60,6 @@ void baryon_two_point(void *correl, void *propag_i, void *propag_j, void *propag
   case IN_JL_MK: baryon_in_jl_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
   default: break;
   }
-
-  return;
-}
-
-void proton(void *correl, void *propag_i, void *propag_j, void *propag_m, int contract_type, size_t volume,
-            int gamma_ij, int gamma_kl, int gamma_mn)
-{
-  if (volume % TILE_SIZE != 0) {
-    fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
-    exit(-1);
-  }
-
-  cudaEvent_t start, stop;
-  CUDA_ERROR_CHECK(cudaEventCreate(&start));
-  CUDA_ERROR_CHECK(cudaEventCreate(&stop));
-  switch ((BaryonContractType)contract_type) {
-  case IK_JL_MN: baryon_ik_jl_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-  case IK_JN_ML: baryon_ik_jn_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-  case IL_JK_MN: baryon_il_jk_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-  case IL_JN_MK: baryon_il_jn_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-  case IN_JK_ML: baryon_in_jk_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-  case IN_JL_MK: baryon_in_jl_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-  default: break;
-  }
-  CUDA_ERROR_CHECK(cudaEventRecord(start));
-  CUDA_ERROR_CHECK(cudaEventSynchronize(start));
-  for (int i = 0; i < 100; ++i) {
-    switch ((BaryonContractType)contract_type) {
-    case IK_JL_MN: baryon_ik_jl_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-    case IK_JN_ML: baryon_ik_jn_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-    case IL_JK_MN: baryon_il_jk_mn(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-    case IL_JN_MK: baryon_il_jn_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-    case IN_JK_ML: baryon_in_jk_ml(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-    case IN_JL_MK: baryon_in_jl_mk(correl, propag_i, propag_j, propag_m, volume, gamma_ij, gamma_kl, gamma_mn); break;
-    default: break;
-    }
-  }
-  CUDA_ERROR_CHECK(cudaEventRecord(stop));
-  CUDA_ERROR_CHECK(cudaEventSynchronize(stop));
-  float milliseconds = 0;
-  CUDA_ERROR_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
-  printf("Time elapsed: %f ms, Bandwidth: %f GB/s\n", milliseconds / 100,
-         (3.0 * volume * Ns * Ns * Nc * Nc * sizeof(Complex128) + volume * sizeof(Complex128)) / (1024 * 1024 * 1024)
-           / (milliseconds / 1000.0 / 100));
-  CUDA_ERROR_CHECK(cudaEventDestroy(start));
-  CUDA_ERROR_CHECK(cudaEventDestroy(stop));
-
-  // CUDA_ERROR_CHECK(cudaDeviceSynchronize());
-
   return;
 }
 
