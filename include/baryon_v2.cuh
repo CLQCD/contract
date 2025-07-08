@@ -13,7 +13,6 @@ struct Arguments {
   void *propag_k;
   void *propag_l;
   void *propag_n;
-  size_t volume;
   int gamma_ij;
   int gamma_kl;
   int gamma_mn;
@@ -23,7 +22,6 @@ __constant__ Arguments args {};
 
 template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon_v2_kernel()
 {
-  // const size_t volume = args.volume;
   const size_t x_block = blockIdx.x * TILE_SIZE;
   const int thread_id = threadIdx.x;
   const int idx0 = threadIdx.x / (Ns * Ns);

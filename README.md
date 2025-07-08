@@ -1,6 +1,6 @@
 # Contraction for LQCD correlation functions
 
-Requires [PyQUDA-Utils](https://pypi.org/project/PyQUDA-Utils/) >= 0.10.9
+Requires [PyQUDA-Utils](https://pypi.org/project/PyQUDA-Utils/) >= 0.10.22
 
 ## Install
 ```bash

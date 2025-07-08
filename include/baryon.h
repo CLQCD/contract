@@ -9,6 +9,13 @@ namespace baryon
               int gamma_fc);
 }
 
+namespace baryon_sequential
+{
+  template <BaryonContractType CONTRACT, BaryonSequentialType PRESERVE>
+  void launch(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume, int gamma_ab, int gamma_de,
+              int gamma_fc);
+}
+
 void baryon_ik_jl_mn(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,
                      int gamma_kl, int gamma_mn);
 void baryon_ik_jn_ml(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,

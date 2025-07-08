@@ -1,5 +1,8 @@
 add_library(baryon STATIC
     baryon.cu
+    baryon_sequential_a.cu
+    baryon_sequential_b.cu
+    baryon_sequential_c.cu
     baryon_ik_jl_mn.cu
     baryon_ik_jn_ml.cu
     baryon_il_jk_mn.cu

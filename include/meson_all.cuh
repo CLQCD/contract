@@ -12,7 +12,6 @@ struct Arguments {
   void *correl[Ns * Ns];
   void *propag_a;
   void *propag_b;
-  size_t volume;
   int gamma;
 };
 
@@ -20,7 +19,6 @@ __constant__ Arguments args {};
 
 __global__ void meson_all_source_kernel()
 {
-  // const size_t volume = args.volume;
   const size_t x_block = blockIdx.x * TILE_SIZE;
   const int thread_id = threadIdx.x;
   const int idx0 = threadIdx.x / (Ns * Ns);
@@ -45,14 +43,14 @@ __global__ void meson_all_source_kernel()
   int A = AD / Ns;
   int D = AD % Ns;
   int B = gamma_index(args.gamma, A);
-  Complex128 gamma_ab_data = gamma_gamma5_data(args.gamma, A);
+  Complex128 gamma_ab_data = gamma_gamma5_data<true>(args.gamma, A);
   for (int i = 0; i < Ns * Ns; ++i) {
     int C = gamma_index(i, D);
-    Complex128 gamma_dc_data = gamma_gamma5_data(i, D);
-    int CB = C * Ns + B;
+    Complex128 gamma_dc_data = gamma_gamma5_data<false>(i, D);
+    int BC = B * Ns + C;
     Complex128 tmp = 0;
     for (int a = 0; a < Nc; ++a) {
-      for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][CB][a * Nc + b]; }
+      for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][BC][a * Nc + b]; }
     }
     correl[idx0][idx1] = gamma_ab_data * gamma_dc_data * tmp;
     __syncthreads();
@@ -100,14 +98,14 @@ __global__ void meson_all_sink_kernel()
   int A = AD / Ns;
   int D = AD % Ns;
   int C = gamma_index(args.gamma, D);
-  Complex128 gamma_dc_data = gamma_gamma5_data(args.gamma, D);
+  Complex128 gamma_dc_data = gamma_gamma5_data<false>(args.gamma, D);
   for (int i = 0; i < Ns * Ns; ++i) {
     int B = gamma_index(i, A);
-    Complex128 gamma_ab_data = gamma_gamma5_data(i, A);
-    int CB = C * Ns + B;
+    Complex128 gamma_ab_data = gamma_gamma5_data<true>(i, A);
+    int BC = B * Ns + C;
     Complex128 tmp = 0;
     for (int a = 0; a < Nc; ++a) {
-      for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][CB][a * Nc + b]; }
+      for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][BC][a * Nc + b]; }
     }
     correl[idx0][idx1] = gamma_ab_data * gamma_dc_data * tmp;
     __syncthreads();

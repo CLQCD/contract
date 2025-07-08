@@ -12,7 +12,6 @@ struct Arguments {
   void *correl;
   void *propag_a;
   void *propag_b;
-  size_t volume;
   int gamma_ab;
   int gamma_dc;
 };
@@ -46,15 +45,15 @@ __global__ void meson_kernel()
   int A = AD / Ns;
   int D = AD % Ns;
   int B = gamma_index(args.gamma_ab, A);
-  Complex128 gamma_ij_data = gamma_gamma5_data(args.gamma_ab, A);
+  Complex128 gamma_ab_data = gamma_gamma5_data<true>(args.gamma_ab, A);
   int C = gamma_index(args.gamma_dc, D);
-  Complex128 gamma_kl_data = gamma_gamma5_data(args.gamma_dc, D);
-  int CB = C * Ns + B;
+  Complex128 gamma_dc_data = gamma_gamma5_data<false>(args.gamma_dc, D);
+  int BC = B * Ns + C;
   Complex128 tmp = 0;
   for (int a = 0; a < Nc; ++a) {
-    for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][CB][a * Nc + b]; }
+    for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][BC][a * Nc + b]; }
   }
-  correl[idx0][idx1] = gamma_ij_data * gamma_kl_data * tmp;
+  correl[idx0][idx1] = gamma_ab_data * gamma_dc_data * tmp;
   __syncthreads();
 
   if (idx1 < 8) { correl[idx0][idx1] += correl[idx0][idx1 + 8]; }

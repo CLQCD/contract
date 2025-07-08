@@ -1,4 +1,3 @@
-#include <cuda_runtime.h>
 #include <contract.h>
 #include <baryon.h>
 #include <meson.h>
@@ -44,6 +43,98 @@ void baryon_two_point(void *correl, void *propag_a, void *propag_b, void *propag
     baryon::launch<AF_BE_CD>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
     break;
   default: break;
+  }
+  return;
+}
+
+void baryon_sequential_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                 BaryonContractType contract_type, BaryonSequentialType preserve_type, size_t volume,
+                                 int gamma_ab, int gamma_de, int gamma_fc)
+{
+  if (preserve_type == PRESERVE_A) {
+    switch (contract_type) {
+    case AD_BE_CF:
+      baryon_sequential::launch<AD_BE_CF, PRESERVE_A>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AD_BF_CE:
+      baryon_sequential::launch<AD_BF_CE, PRESERVE_A>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AE_BD_CF:
+      baryon_sequential::launch<AE_BD_CF, PRESERVE_A>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AE_BF_CD:
+      baryon_sequential::launch<AE_BF_CD, PRESERVE_A>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AF_BD_CE:
+      baryon_sequential::launch<AF_BD_CE, PRESERVE_A>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AF_BE_CD:
+      baryon_sequential::launch<AF_BE_CD, PRESERVE_A>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    default: break;
+    }
+  } else if (preserve_type == PRESERVE_B) {
+    switch (contract_type) {
+    case AD_BE_CF:
+      baryon_sequential::launch<AD_BE_CF, PRESERVE_B>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AD_BF_CE:
+      baryon_sequential::launch<AD_BF_CE, PRESERVE_B>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AE_BD_CF:
+      baryon_sequential::launch<AE_BD_CF, PRESERVE_B>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AE_BF_CD:
+      baryon_sequential::launch<AE_BF_CD, PRESERVE_B>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AF_BD_CE:
+      baryon_sequential::launch<AF_BD_CE, PRESERVE_B>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AF_BE_CD:
+      baryon_sequential::launch<AF_BE_CD, PRESERVE_B>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    default: break;
+    }
+  } else if (preserve_type == PRESERVE_C) {
+    switch (contract_type) {
+    case AD_BE_CF:
+      baryon_sequential::launch<AD_BE_CF, PRESERVE_C>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AD_BF_CE:
+      baryon_sequential::launch<AD_BF_CE, PRESERVE_C>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AE_BD_CF:
+      baryon_sequential::launch<AE_BD_CF, PRESERVE_C>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AE_BF_CD:
+      baryon_sequential::launch<AE_BF_CD, PRESERVE_C>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AF_BD_CE:
+      baryon_sequential::launch<AF_BD_CE, PRESERVE_C>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    case AF_BE_CD:
+      baryon_sequential::launch<AF_BE_CD, PRESERVE_C>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de,
+                                                      gamma_fc);
+      break;
+    default: break;
+    }
   }
   return;
 }

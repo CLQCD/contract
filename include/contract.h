@@ -23,12 +23,21 @@ typedef enum {
   IN_JL_MK = AF_BE_CD,
 } BaryonContractType;
 
+typedef enum {
+  PRESERVE_A,
+  PRESERVE_B,
+  PRESERVE_C,
+} BaryonSequentialType;
+
 void init(int device);
 void meson_two_point(void *correl, void *propag_a, void *propag_b, unsigned long volume, int gamma_ab, int gamma_dc);
 void meson_all_source_two_point(void **correl, void *propag_a, void *propag_b, unsigned long volume, int gamma_ab);
 void meson_all_sink_two_point(void **correl, void *propag_a, void *propag_b, unsigned long volume, int gamma_dc);
 void baryon_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c, BaryonContractType contract_type,
                       unsigned long volume, int gamma_ab, int gamma_de, int gamma_fc);
+void baryon_sequential_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                 BaryonContractType contract_type, BaryonSequentialType preserve_type,
+                                 unsigned long volume, int gamma_ab, int gamma_de, int gamma_fc);
 void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
                          unsigned long volume, int gamma_ij, int gamma_kl, int gamma_mn);
 

@@ -26,16 +26,17 @@ int main(int argc, char *argv[])
 {
   init(0);
 
+  size_t volume = 24 * 24 * 24 * 18;
   void *correl, *propag_i, *propag_j, *propag_m;
-  cudaMalloc(&correl, 18 * 24 * 24 * 24 * 2 * sizeof(double));
-  cudaMalloc(&propag_i, 18 * 24 * 24 * 24 * 16 * 9 * 2 * sizeof(double));
-  cudaMalloc(&propag_j, 18 * 24 * 24 * 24 * 16 * 9 * 2 * sizeof(double));
-  meson(correl, propag_i, propag_j, 18 * 24 * 24 * 24, 5, 5);
-  meson(correl, propag_i, propag_j, 18 * 24 * 24 * 24, 5, 5);
-  meson(correl, propag_i, propag_j, 18 * 24 * 24 * 24, 5, 5);
-  meson(correl, propag_i, propag_j, 18 * 24 * 24 * 24, 5, 5);
-  meson(correl, propag_i, propag_j, 18 * 24 * 24 * 24, 5, 5);
-  meson(correl, propag_i, propag_j, 18 * 24 * 24 * 24, 5, 5);
+  cudaMalloc(&correl, volume * 2 * sizeof(double));
+  cudaMalloc(&propag_i, volume * 16 * 9 * 2 * sizeof(double));
+  cudaMalloc(&propag_j, volume * 16 * 9 * 2 * sizeof(double));
+  meson(correl, propag_i, propag_j, volume, 5, 5);
+  meson(correl, propag_i, propag_j, volume, 5, 5);
+  meson(correl, propag_i, propag_j, volume, 5, 5);
+  meson(correl, propag_i, propag_j, volume, 5, 5);
+  meson(correl, propag_i, propag_j, volume, 5, 5);
+  meson(correl, propag_i, propag_j, volume, 5, 5);
   cudaFree(correl);
   cudaFree(propag_i);
   cudaFree(propag_j);

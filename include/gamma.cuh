@@ -109,27 +109,49 @@ template <bool TRANSPOSE> __device__ __forceinline__ const Complex128 gamma_data
   return 0;
 }
 
-__device__ __forceinline__ const Complex128 gamma_gamma5_data(int gamma, int row)
+template <bool TRANSPOSE> __device__ __forceinline__ const Complex128 gamma_gamma5_data(int gamma, int row)
 {
   const Complex128 I(0.0, 1.0);
-  switch (gamma) {
-  case 0: return (row == 0 || row == 1) ? 1 : -1; break;
-  case 1: return -I; break;
-  case 2: return (row == 0 || row == 2) ? 1 : -1; break;
-  case 3: return (row == 0 || row == 3) ? -I : I; break;
-  case 4: return (row == 0 || row == 2) ? -I : I; break;
-  case 5: return (row == 0 || row == 3) ? -1 : 1; break;
-  case 6: return (row == 0 || row == 1) ? -I : I; break;
-  case 7: return -1; break;
-  case 8: return (row == 0 || row == 1) ? -1 : 1; break;
-  case 9: return I; break;
-  case 10: return (row == 0 || row == 2) ? -1 : 1; break;
-  case 11: return (row == 0 || row == 3) ? I : -I; break;
-  case 12: return (row == 0 || row == 2) ? I : -I; break;
-  case 13: return (row == 0 || row == 3) ? 1 : -1; break;
-  case 14: return (row == 0 || row == 1) ? I : -I; break;
-  case 15: return 1; break;
-  default: break;
+  if constexpr (!TRANSPOSE) {
+    switch (gamma) {
+    case 0: return (row == 0 || row == 1) ? 1 : -1; break;
+    case 1: return -I; break;
+    case 2: return (row == 0 || row == 2) ? 1 : -1; break;
+    case 3: return (row == 0 || row == 3) ? -I : I; break;
+    case 4: return (row == 0 || row == 2) ? -I : I; break;
+    case 5: return (row == 0 || row == 3) ? -1 : 1; break;
+    case 6: return (row == 0 || row == 1) ? -I : I; break;
+    case 7: return -1; break;
+    case 8: return (row == 0 || row == 1) ? -1 : 1; break;
+    case 9: return I; break;
+    case 10: return (row == 0 || row == 2) ? -1 : 1; break;
+    case 11: return (row == 0 || row == 3) ? I : -I; break;
+    case 12: return (row == 0 || row == 2) ? I : -I; break;
+    case 13: return (row == 0 || row == 3) ? 1 : -1; break;
+    case 14: return (row == 0 || row == 1) ? I : -I; break;
+    case 15: return 1; break;
+    default: break;
+    }
+  } else {
+    switch (gamma) {
+    case 0: return (row == 0 || row == 1) ? 1 : -1; break;
+    case 1: return I; break;
+    case 2: return (row == 0 || row == 2) ? 1 : -1; break;
+    case 3: return (row == 0 || row == 3) ? -I : I; break;
+    case 4: return (row == 0 || row == 2) ? I : -I; break;
+    case 5: return (row == 0 || row == 3) ? 1 : -1; break;
+    case 6: return (row == 0 || row == 1) ? -I : I; break;
+    case 7: return 1; break;
+    case 8: return (row == 0 || row == 1) ? -1 : 1; break;
+    case 9: return I; break;
+    case 10: return (row == 0 || row == 2) ? 1 : -1; break;
+    case 11: return (row == 0 || row == 3) ? I : -I; break;
+    case 12: return (row == 0 || row == 2) ? I : -I; break;
+    case 13: return (row == 0 || row == 3) ? -1 : 1; break;
+    case 14: return (row == 0 || row == 1) ? I : -I; break;
+    case 15: return 1; break;
+    default: break;
+    }
   }
   return 0;
 }

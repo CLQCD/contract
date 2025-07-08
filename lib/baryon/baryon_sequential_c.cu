@@ -1,11 +1,11 @@
-#include <baryon.cuh>
+#include <baryon_sequential.cuh>
 #include <baryon.h>
 
-namespace baryon
+namespace baryon_sequential
 {
   template <BaryonContractType CONTRACT, int GAMMA_FC> void *instantiate()
   {
-    return reinterpret_cast<void *>(baryon_kernel<CONTRACT, GAMMA_FC>);
+    return reinterpret_cast<void *>(baryon_sequential_c_kernel<CONTRACT, GAMMA_FC>);
   }
   template <BaryonContractType CONTRACT> void *instantiate(int gamma_fc)
   {
@@ -33,7 +33,7 @@ namespace baryon
     }
     return nullptr;
   }
-  template <BaryonContractType CONTRACT>
+  template <BaryonContractType CONTRACT, BaryonSequentialType PRESERVE>
   void launch(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume, int gamma_ab, int gamma_de,
               int gamma_fc)
   {
@@ -53,16 +53,16 @@ namespace baryon
 
     return;
   }
-  template void launch<AD_BE_CF>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AD_BF_CE>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AE_BD_CF>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AE_BF_CD>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AF_BD_CE>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AF_BE_CD>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-} // namespace baryon
+  template void launch<AD_BE_CF, PRESERVE_C>(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                             size_t volume, int gamma_ab, int gamma_de, int gamma_fc);
+  template void launch<AD_BF_CE, PRESERVE_C>(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                             size_t volume, int gamma_ab, int gamma_de, int gamma_fc);
+  template void launch<AE_BD_CF, PRESERVE_C>(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                             size_t volume, int gamma_ab, int gamma_de, int gamma_fc);
+  template void launch<AE_BF_CD, PRESERVE_C>(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                             size_t volume, int gamma_ab, int gamma_de, int gamma_fc);
+  template void launch<AF_BD_CE, PRESERVE_C>(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                             size_t volume, int gamma_ab, int gamma_de, int gamma_fc);
+  template void launch<AF_BE_CD, PRESERVE_C>(void *correl, void *propag_a, void *propag_b, void *propag_c,
+                                             size_t volume, int gamma_ab, int gamma_de, int gamma_fc);
+} // namespace baryon_sequential
