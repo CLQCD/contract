@@ -4,9 +4,8 @@
 
 namespace baryon
 {
-  template <BaryonContractType CONTRACT>
-  void launch(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume, int gamma_ab, int gamma_de,
-              int gamma_fc);
+  void launch(void *correl, void *propag_i, void *propag_j, void *propag_n, BaryonContractType contract_type,
+              size_t volume, int gamma_ij, int gamma_kl, int gamma_mn);
 }
 
 namespace baryon_sequential

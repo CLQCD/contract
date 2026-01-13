@@ -3,13 +3,15 @@
 
 namespace baryon
 {
-  template <BaryonContractType CONTRACT, int GAMMA_FC> void *instantiate()
+
+  template <BaryonContractType CONTRACT, int GAMMA_MN> void *instantiate()
   {
-    return reinterpret_cast<void *>(baryon_kernel<CONTRACT, GAMMA_FC>);
+    return reinterpret_cast<void *>(baryon_kernel<CONTRACT, GAMMA_MN>);
   }
-  template <BaryonContractType CONTRACT> void *instantiate(int gamma_fc)
+
+  template <BaryonContractType CONTRACT> void *instantiate(int gamma_mn)
   {
-    switch (gamma_fc) {
+    switch (gamma_mn) {
     case 0: return instantiate<CONTRACT, 0>(); break;
     case 1: return instantiate<CONTRACT, 1>(); break;
     case 2: return instantiate<CONTRACT, 2>(); break;
@@ -27,15 +29,16 @@ namespace baryon
     case 14: return instantiate<CONTRACT, 14>(); break;
     case 15: return instantiate<CONTRACT, 15>(); break;
     default:
-      fprintf(stderr, "Error: Invalid gamma_fc value %d\n", gamma_fc);
+      fprintf(stderr, "Error: Invalid gamma_mn value %d\n", gamma_mn);
       exit(-1);
       break;
     }
     return nullptr;
   }
+
   template <BaryonContractType CONTRACT>
-  void launch(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume, int gamma_ab, int gamma_de,
-              int gamma_fc)
+  void launch(void *correl, void *propag_i, void *propag_j, void *propag_n, size_t volume, int gamma_ij, int gamma_kl,
+              int gamma_mn)
   {
     if (volume % TILE_SIZE != 0) {
       fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
@@ -45,24 +48,27 @@ namespace baryon
     unsigned int grid = (volume * (Ns * Ns) + BLOCK_SIZE - 1) / BLOCK_SIZE;
     unsigned int block = BLOCK_SIZE;
     dim3 gridDim(grid, 1U, 1U);
-    dim3 blockDim(block, 1, 1);
+    dim3 blockDim(block, 1U, 1U);
 
-    Arguments args_h = {correl, propag_a, propag_b, propag_c, gamma_ab, gamma_de};
+    Arguments args_h = {correl, propag_i, propag_j, propag_n, gamma_ij, gamma_kl};
     CUDA_ERROR_CHECK(cudaMemcpyToSymbol(args, &args_h, sizeof(Arguments)));
-    CUDA_ERROR_CHECK(cudaLaunchKernel(instantiate<CONTRACT>(gamma_fc), gridDim, blockDim, {}));
-
+    CUDA_ERROR_CHECK(cudaLaunchKernel(instantiate<CONTRACT>(gamma_mn), gridDim, blockDim, {}));
     return;
   }
-  template void launch<AD_BE_CF>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AD_BF_CE>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AE_BD_CF>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AE_BF_CD>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AF_BD_CE>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
-  template void launch<AF_BE_CD>(void *correl, void *propag_a, void *propag_b, void *propag_c, size_t volume,
-                                 int gamma_ab, int gamma_de, int gamma_fc);
+
+  void launch(void *correl, void *propag_i, void *propag_j, void *propag_n, BaryonContractType contract_type,
+              size_t volume, int gamma_ij, int gamma_kl, int gamma_mn)
+  {
+    switch (contract_type) {
+    case IK_JL_NM: launch<IK_JL_NM>(correl, propag_i, propag_j, propag_n, volume, gamma_ij, gamma_kl, gamma_mn); break;
+    case IK_JM_NL: launch<IK_JM_NL>(correl, propag_i, propag_j, propag_n, volume, gamma_ij, gamma_kl, gamma_mn); break;
+    case IL_JK_NM: launch<IL_JK_NM>(correl, propag_i, propag_j, propag_n, volume, gamma_ij, gamma_kl, gamma_mn); break;
+    case IL_JM_NK: launch<IL_JM_NK>(correl, propag_i, propag_j, propag_n, volume, gamma_ij, gamma_kl, gamma_mn); break;
+    case IM_JK_NL: launch<IM_JK_NL>(correl, propag_i, propag_j, propag_n, volume, gamma_ij, gamma_kl, gamma_mn); break;
+    case IM_JL_NK: launch<IM_JL_NK>(correl, propag_i, propag_j, propag_n, volume, gamma_ij, gamma_kl, gamma_mn); break;
+    default: break;
+    }
+    return;
+  }
+
 } // namespace baryon

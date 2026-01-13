@@ -23,27 +23,7 @@ void meson_all_sink_two_point(void **correl, void *propag_a, void *propag_b, siz
 void baryon_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c, BaryonContractType contract_type,
                       size_t volume, int gamma_ab, int gamma_de, int gamma_fc)
 {
-  switch (contract_type) {
-  case AD_BE_CF:
-    baryon::launch<AD_BE_CF>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
-    break;
-  case AD_BF_CE:
-    baryon::launch<AD_BF_CE>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
-    break;
-  case AE_BD_CF:
-    baryon::launch<AE_BD_CF>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
-    break;
-  case AE_BF_CD:
-    baryon::launch<AE_BF_CD>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
-    break;
-  case AF_BD_CE:
-    baryon::launch<AF_BD_CE>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
-    break;
-  case AF_BE_CD:
-    baryon::launch<AF_BE_CD>(correl, propag_a, propag_b, propag_c, volume, gamma_ab, gamma_de, gamma_fc);
-    break;
-  default: break;
-  }
+  baryon::launch(correl, propag_a, propag_b, propag_c, contract_type, volume, gamma_ab, gamma_de, gamma_fc);
   return;
 }
 
