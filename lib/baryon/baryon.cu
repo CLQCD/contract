@@ -1,4 +1,4 @@
-#include <baryon.cuh>
+#include <baryon_v3.cuh>
 #include <baryon.h>
 
 namespace baryon
