@@ -1,5 +1,6 @@
 #pragma once
 
+#include <complex>
 #include <kernel.cuh>
 #include <contract.h>
 #include <gamma.cuh>
@@ -12,10 +13,9 @@ constexpr int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
 
 namespace contract
 {
-  template <typename F, BaryonContractType CONTRACT_, int GAMMA_MN_> struct BaryonArgs {
+  template <typename F, BaryonContractType CONTRACT_> struct BaryonGeneralArgs {
     using T = Complex<F>;
     static constexpr BaryonContractType CONTRACT = CONTRACT_;
-    static constexpr int GAMMA_MN = GAMMA_MN_;
 
     void *correl;
     void *propag_i;
@@ -23,18 +23,21 @@ namespace contract
     void *propag_n;
     int gamma_ij;
     int gamma_kl;
+    T project_mn[Ns * Ns];
 
-    BaryonArgs(void *correl, void *propag_i, void *propag_j, void *propag_n, int gamma_ij, int gamma_kl) :
+    BaryonGeneralArgs(void *correl, void *propag_i, void *propag_j, void *propag_n, int gamma_ij, int gamma_kl,
+                      std::complex<double> project_mn[Ns * Ns]) :
       correl(correl), propag_i(propag_i), propag_j(propag_j), propag_n(propag_n), gamma_ij(gamma_ij), gamma_kl(gamma_kl)
     {
+      for (int ij = 0; ij < Ns * Ns; ++ij) { this->project_mn[ij] = project_mn[ij]; }
     }
   };
 
-  template <BaryonContractType CONTRACT, int GAMMA_MN, typename F>
-  __device__ __forceinline__ void baryon_local(Complex<F> correl[Ns * Ns], const Complex<F> propag_i[Ns * Ns][Nc * Nc],
-                                               const Complex<F> propag_j[Ns * Ns][Nc * Nc],
-                                               const Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl,
-                                               int idx)
+  template <BaryonContractType CONTRACT, typename F>
+  __device__ __forceinline__ void
+  baryon_general_local(Complex<F> correl[Ns * Ns], const Complex<F> propag_i[Ns * Ns][Nc * Nc],
+                       const Complex<F> propag_j[Ns * Ns][Nc * Nc], const Complex<F> propag_n[Ns * Ns][Nc * Nc],
+                       int gamma_ij, int gamma_kl, const Complex<F> project_mn[Ns * Ns], int idx)
   {
     using T = Complex<F>;
     constexpr bool SWAP_IJ = (CONTRACT == IM_JK_NL || CONTRACT == IM_JL_NK);
@@ -57,9 +60,11 @@ namespace contract
       {
         T tmp = 0, tmp_color;
         for (int n = 0; n < Ns; ++n) {
-          int m = gamma_index(GAMMA_MN, n);
-          int nm = n * Ns + m;
-          tmp += gamma_data<true, F>(GAMMA_MN, n) * propag_n[nm][ad];
+          for (int m = 0; m < Ns; ++m) {
+            int nm = n * Ns + m;
+            int mn = m * Ns + n;
+            tmp += project_mn[mn] * propag_n[nm][ad];
+          }
         }
         epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jl]);
         correl[idx] += gamma_ij_data * gamma_kl_data * tmp * tmp_color;
@@ -70,11 +75,13 @@ namespace contract
       {
         T tmp = 0, tmp_color;
         for (int n = 0; n < Ns; ++n) {
-          int m = gamma_index(GAMMA_MN, n);
-          int jm = j * Ns + m;
-          int nl = n * Ns + l;
-          epsilon_abc_def(tmp_color, propag_j[jm], propag_n[nl]);
-          tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+          for (int m = 0; m < Ns; ++m) {
+            int jm = j * Ns + m;
+            int nl = n * Ns + l;
+            int mn = m * Ns + n;
+            epsilon_abc_def(tmp_color, propag_j[jm], propag_n[nl]);
+            tmp += project_mn[mn] * tmp_color;
+          }
         }
         correl[idx] += gamma_ij_data * gamma_kl_data * tmp * propag_i[ik][ad];
       }
@@ -82,7 +89,7 @@ namespace contract
     __syncthreads();
   }
 
-  template <typename Args> __device__ void baryon_kernel(const Args &args, size_t x_offset)
+  template <typename Args> __device__ void baryon_general_kernel(const Args &args, size_t x_offset)
   {
     __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
@@ -104,17 +111,17 @@ namespace contract
 
     int t_idx = threadIdx.x / LANE_SIZE;
     int l_idx = threadIdx.x % LANE_SIZE;
-    baryon_local<Args::CONTRACT, Args::GAMMA_MN>(correl[t_idx], propag_i[t_idx], propag_j[t_idx], propag_n[t_idx],
-                                                 args.gamma_ij, args.gamma_kl, l_idx);
+    baryon_general_local<Args::CONTRACT>(correl[t_idx], propag_i[t_idx], propag_j[t_idx], propag_n[t_idx],
+                                         args.gamma_ij, args.gamma_kl, args.project_mn, l_idx);
     reduce_lane<Ns * Ns>(correl);
 
     store_tile<Ns * Ns>(args.correl, correl, x_offset);
   }
 
-  template <typename Args> struct BaryonKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr BaryonKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct BaryonGeneralKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
+    constexpr BaryonGeneralKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_general_kernel(this->args, x_offset); }
   };
 
 }; // namespace contract

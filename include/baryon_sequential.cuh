@@ -1,311 +1,272 @@
 #pragma once
 
+#include <atomic>
+
+#include <kernel.cuh>
 #include <contract.h>
 #include <gamma.cuh>
 
 const int Ns = 4;
 const int Nc = 3;
 const int BLOCK_SIZE = 64;
-const int TILE_SIZE = BLOCK_SIZE / (Ns * Ns);
+const int LANE_SIZE = Ns * Ns;
+const int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
 
-struct Arguments {
-  void *correl;
-  void *propag_a;
-  void *propag_b;
-  void *propag_c;
-  int gamma_ab;
-  int gamma_de;
-};
-
-__constant__ Arguments args {};
-
-template <BaryonContractType CONTRACT, int GAMMA_FC> __global__ void baryon_sequential_a_kernel()
+namespace contract
 {
-  const size_t x_block = blockIdx.x * TILE_SIZE;
-  const int thread_id = threadIdx.x;
-  const int idx0 = threadIdx.x / (Ns * Ns);
-  const int idx1 = threadIdx.x % (Ns * Ns);
 
-  __shared__ Complex128 propag_a[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_b[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_c[TILE_SIZE][Ns * Ns][Nc * Nc];
+  template <typename F, BaryonContractType CONTRACT_, int GAMMA_MN_> struct BaryonSequentialArgs {
+    using T = Complex<F>;
+    static constexpr BaryonContractType CONTRACT = CONTRACT_;
+    static constexpr int GAMMA_MN = GAMMA_MN_;
 
-  constexpr bool SWAP_AB = (CONTRACT == AF_BD_CE || CONTRACT == AF_BE_CD);
-  constexpr bool SWAP_DE = (CONTRACT == AE_BD_CF || CONTRACT == AE_BF_CD || CONTRACT == AF_BE_CD);
-  constexpr BaryonContractType MODE = (CONTRACT == AD_BE_CF || CONTRACT == AE_BD_CF) ? AD_BE_CF : AD_BF_CE;
+    void *propag_i;
+    void *propag_j;
+    void *propag_n;
+    int gamma_ij;
+    int gamma_kl;
 
-  size_t offset = x_block * (Ns * Ns * Nc * Nc);
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    if constexpr (SWAP_AB) {
-      // propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_b)[offset + pos];
-      propag_b[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-      propag_c[x][AB][ab] = static_cast<Complex128 *>(args.propag_c)[offset + pos];
+    BaryonSequentialArgs(void *propag_i, void *propag_j, void *propag_n, int gamma_ij, int gamma_kl) :
+      propag_i(propag_i), propag_j(propag_j), propag_n(propag_n), gamma_ij(gamma_ij), gamma_kl(gamma_kl)
+    {
+    }
+  };
+
+  template <BaryonContractType CONTRACT, BaryonSequentialType SEQUENTIAL, int GAMMA_MN, typename F>
+  __device__ __forceinline__ void
+  baryon_sequential_local(Complex<F> propag_i[Ns * Ns][Nc * Nc], Complex<F> propag_j[Ns * Ns][Nc * Nc],
+                          Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl, int idx)
+  {
+    using T = Complex<F>;
+    constexpr bool SWAP_IJ = (CONTRACT == IM_JK_NL || CONTRACT == IM_JL_NK);
+    constexpr bool SWAP_KL = (CONTRACT == IL_JK_NM || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK);
+
+    int il = idx;
+    int i = il / Ns;
+    int l = il % Ns;
+    int j = gamma_index(gamma_ij, i);
+    T gamma_ij_data = gamma_data<SWAP_IJ, F>(gamma_ij, i);
+    int k = gamma_index(gamma_kl, l);
+    T gamma_kl_data = gamma_data<!SWAP_KL, F>(gamma_kl, l);
+    int ik = i * Ns + k;
+    int jl = j * Ns + l;
+    if constexpr (CONTRACT == IK_JL_NM || CONTRACT == IL_JK_NM) {
+      if constexpr (SEQUENTIAL == SEQUENTIAL_I) {
+        for_abc_def
+        {
+          T tmp = 0, tmp_color;
+          for (int n = 0; n < Ns; ++n) {
+            int m = gamma_index(GAMMA_MN, n);
+            int nm = n * Ns + m;
+            epsilon_abc_def(tmp_color, propag_j[jl], propag_n[nm]);
+            tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+          }
+          propag_i[ik][ad] = gamma_ij_data * gamma_kl_data * tmp;
+        }
+        __syncthreads();
+      } else if constexpr (SEQUENTIAL == SEQUENTIAL_J) {
+        for_abc_def
+        {
+          T tmp = 0, tmp_color;
+          for (int n = 0; n < Ns; ++n) {
+            int m = gamma_index(GAMMA_MN, n);
+            int nm = n * Ns + m;
+            epsilon_abc_def(tmp_color, propag_i[ik], propag_n[nm]);
+            tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+          }
+          propag_j[jl][ad] = gamma_ij_data * gamma_kl_data * tmp;
+        }
+        __syncthreads();
+      } else if constexpr (SEQUENTIAL == SEQUENTIAL_N) {
+        for_abc_def
+        {
+          T tmp_color;
+          epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jl]);
+          propag_n[il][ad] = gamma_ij_data * gamma_kl_data * tmp_color;
+        }
+        __syncthreads();
+#pragma unroll
+        for (int stride = LANE_SIZE / 2; stride > 1; stride /= 2) {
+          if (idx < stride) {
+            for_a_d { propag_n[idx][ad] += propag_n[idx + stride][ad]; }
+          }
+          __syncthreads();
+        }
+        if (idx > 0) {
+          for_a_d { propag_n[idx][ad] = propag_n[0][ad]; }
+        }
+        __syncthreads();
+        int nm = idx;
+        int n = nm / Ns;
+        int m = nm % Ns;
+        T gamma_mn_data = gamma_data<true, F>(GAMMA_MN, n, m);
+        for_a_d { propag_n[nm][ad] *= gamma_mn_data * propag_n[nm][ad]; }
+        __syncthreads();
+      }
+    } else if constexpr (CONTRACT == IK_JM_NL || CONTRACT == IM_JK_NL || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK) {
+      if constexpr (SEQUENTIAL == SEQUENTIAL_I) {
+        for_abc_def
+        {
+          T tmp = 0, tmp_color;
+          for (int n = 0; n < Ns; ++n) {
+            int m = gamma_index(GAMMA_MN, n);
+            int jm = j * Ns + m;
+            int nl = n * Ns + l;
+            epsilon_abc_def(tmp_color, propag_j[jm], propag_n[nl]);
+            tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+          }
+          propag_i[ik][ad] = gamma_ij_data * gamma_kl_data * tmp;
+        }
+        __syncthreads();
+      } else if constexpr (SEQUENTIAL == SEQUENTIAL_J) {
+        for_abc_def
+        {
+          T tmp = 0, tmp_color;
+          for (int n = 0; n < Ns; ++n) {
+            int m = gamma_index(GAMMA_MN, n);
+            int jm = j * Ns + m;
+            int nl = n * Ns + l;
+            epsilon_abc_def(tmp_color, propag_i[ik], propag_n[nl]);
+            tmp = gamma_ij_data * gamma_kl_data * gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+            F *propag_j_ptr = reinterpret_cast<double *>(&propag_j[jm][ad]);
+            atomicAdd(&propag_j_ptr[0], tmp.real());
+            atomicAdd(&propag_j_ptr[1], tmp.imag());
+          }
+        }
+        __syncthreads();
+      } else if constexpr (SEQUENTIAL == SEQUENTIAL_N) {
+        for_abc_def
+        {
+          T tmp = 0, tmp_color;
+          for (int n = 0; n < Ns; ++n) {
+            int m = gamma_index(GAMMA_MN, n);
+            int jm = j * Ns + m;
+            int nl = n * Ns + l;
+            epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jm]);
+            tmp = gamma_ij_data * gamma_kl_data * gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+            F *propag_n_ptr = reinterpret_cast<double *>(&propag_n[nl][ad]);
+            atomicAdd(&propag_n_ptr[0], tmp.real());
+            atomicAdd(&propag_n_ptr[1], tmp.imag());
+          }
+        }
+        __syncthreads();
+      }
+    }
+  }
+
+  template <typename Args> __device__ void baryon_sequential_i_kernel(const Args &args, size_t x_offset)
+  {
+    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
+
+    constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
+
+    if constexpr (SWAP_IJ) {
+      load_vector(propag_i, args.propag_j, x_offset);
+      // load_vector(propag_j, args.propag_i, x_offset);
+      load_vector(propag_n, args.propag_n, x_offset);
+      __syncthreads();
+
+      int t_idx = threadIdx.x / LANE_SIZE;
+      int l_idx = threadIdx.x % LANE_SIZE;
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
+        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+
+      store_vector(args.propag_i, propag_j, x_offset);
     } else {
-      // propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-      propag_b[x][AB][ab] = static_cast<Complex128 *>(args.propag_b)[offset + pos];
-      propag_c[x][AB][ab] = static_cast<Complex128 *>(args.propag_c)[offset + pos];
+      // load_vector(propag_i, args.propag_i, x_offset);
+      load_vector(propag_j, args.propag_j, x_offset);
+      load_vector(propag_n, args.propag_n, x_offset);
+      __syncthreads();
+
+      int t_idx = threadIdx.x / LANE_SIZE;
+      int l_idx = threadIdx.x % LANE_SIZE;
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
+        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+
+      store_vector(args.propag_i, propag_i, x_offset);
     }
   }
-  __syncthreads();
 
-  int AD = idx1;
-  int A = AD / Ns;
-  int D = AD % Ns;
-  int B = gamma_index(args.gamma_ab, A);
-  Complex128 gamma_ab_data = gamma_data<SWAP_AB>(args.gamma_ab, A);
-  int E = gamma_index(args.gamma_de, D);
-  Complex128 gamma_de_data = gamma_data<SWAP_DE>(args.gamma_de, D);
-  if constexpr (MODE == AD_BE_CF) {
-    int BE = B * Ns + E;
-    for (int a = 0; a < Nc; ++a) {
-      int b = (a + 1) % Nc, c = (a + 2) % Nc;
-      for (int d = 0; d < Nc; ++d) {
-        int e = (d + 1) % Nc, f = (d + 2) % Nc;
-        Complex128 tmp = 0;
-        for (int C = 0; C < Ns; ++C) {
-          int F = gamma_index<GAMMA_FC>(C);
-          Complex128 gamma_fc_data = gamma_data<GAMMA_FC, true>(C);
-          int CF = C * Ns + F;
-          tmp += gamma_fc_data
-            * (propag_b[idx0][BE][b * Nc + e] * propag_c[idx0][CF][c * Nc + f]
-               - propag_b[idx0][BE][c * Nc + e] * propag_c[idx0][CF][b * Nc + f]
-               - propag_b[idx0][BE][b * Nc + f] * propag_c[idx0][CF][c * Nc + e]
-               + propag_b[idx0][BE][c * Nc + f] * propag_c[idx0][CF][b * Nc + e]);
-        }
-        propag_a[idx0][AD][a * Nc + d] = gamma_ab_data * gamma_de_data * tmp;
-      }
-    }
-  } else if constexpr (MODE == AD_BF_CE) {
-    for (int a = 0; a < Nc; ++a) {
-      int b = (a + 1) % Nc, c = (a + 2) % Nc;
-      for (int d = 0; d < Nc; ++d) {
-        int e = (d + 1) % Nc, f = (d + 2) % Nc;
-        Complex128 tmp = 0;
-        for (int C = 0; C < Ns; ++C) {
-          int F = gamma_index<GAMMA_FC>(C);
-          Complex128 gamma_fc_data = gamma_data<GAMMA_FC, true>(C);
-          int BF = B * Ns + F;
-          int CE = C * Ns + E;
-          tmp += gamma_fc_data
-            * (propag_b[idx0][BF][b * Nc + e] * propag_c[idx0][CE][c * Nc + f]
-               - propag_b[idx0][BF][c * Nc + e] * propag_c[idx0][CE][b * Nc + f]
-               - propag_b[idx0][BF][b * Nc + f] * propag_c[idx0][CE][c * Nc + e]
-               + propag_b[idx0][BF][c * Nc + f] * propag_c[idx0][CE][b * Nc + e]);
-        }
-        propag_a[idx0][AD][a * Nc + d] = gamma_ab_data * gamma_de_data * tmp;
-      }
-    }
-  }
-  __syncthreads();
+  template <typename Args> __device__ void baryon_sequential_j_kernel(const Args &args, size_t x_offset)
+  {
+    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
 
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    if constexpr (SWAP_AB) {
-      static_cast<Complex128 *>(args.propag_b)[offset + pos] = propag_a[x][AB][ab];
+    constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
+
+    if constexpr (SWAP_IJ) {
+      // load_vector(propag_i, args.propag_j, x_offset);
+      load_vector(propag_j, args.propag_i, x_offset);
+      load_vector(propag_n, args.propag_n, x_offset);
+      __syncthreads();
+
+      int t_idx = threadIdx.x / LANE_SIZE;
+      int l_idx = threadIdx.x % LANE_SIZE;
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
+        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+
+      store_vector(args.propag_j, propag_i, x_offset);
     } else {
-      static_cast<Complex128 *>(args.propag_a)[offset + pos] = propag_a[x][AB][ab];
+      load_vector(propag_i, args.propag_i, x_offset);
+      // load_vector(propag_j, args.propag_j, x_offset);
+      load_vector(propag_n, args.propag_n, x_offset);
+      __syncthreads();
+
+      int t_idx = threadIdx.x / LANE_SIZE;
+      int l_idx = threadIdx.x % LANE_SIZE;
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
+        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+
+      store_vector(args.propag_j, propag_j, x_offset);
     }
   }
-  __syncthreads();
 
-  return;
-}
+  template <typename Args> __device__ void baryon_sequential_n_kernel(const Args &args, size_t x_offset)
+  {
+    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
 
-template <BaryonContractType CONTRACT, int GAMMA_FC> __global__ void baryon_sequential_b_kernel()
-{
-  const size_t x_block = blockIdx.x * TILE_SIZE;
-  const int thread_id = threadIdx.x;
-  const int idx0 = threadIdx.x / (Ns * Ns);
-  const int idx1 = threadIdx.x % (Ns * Ns);
+    constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
-  __shared__ Complex128 propag_a[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_b[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_c[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 correl[TILE_SIZE][Ns * Ns];
-  correl[idx0][idx1] = 0;
-
-  constexpr bool SWAP_AB = (CONTRACT == AF_BD_CE || CONTRACT == AF_BE_CD);
-  constexpr bool SWAP_DE = (CONTRACT == AE_BD_CF || CONTRACT == AE_BF_CD || CONTRACT == AF_BE_CD);
-  constexpr BaryonContractType MODE = (CONTRACT == AD_BE_CF || CONTRACT == AE_BD_CF) ? AD_BE_CF : AD_BF_CE;
-
-  size_t offset = x_block * (Ns * Ns * Nc * Nc);
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    if constexpr (SWAP_AB) {
-      propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_b)[offset + pos];
-      // propag_b[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-      propag_c[x][AB][ab] = static_cast<Complex128 *>(args.propag_c)[offset + pos];
+    if constexpr (SWAP_IJ) {
+      load_vector(propag_i, args.propag_j, x_offset);
+      load_vector(propag_j, args.propag_i, x_offset);
+      // load_vector(propag_n, args.propag_n, x_offset);
     } else {
-      propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-      // propag_b[x][AB][ab] = static_cast<Complex128 *>(args.propag_b)[offset + pos];
-      propag_c[x][AB][ab] = static_cast<Complex128 *>(args.propag_c)[offset + pos];
+      load_vector(propag_i, args.propag_i, x_offset);
+      load_vector(propag_j, args.propag_j, x_offset);
+      // load_vector(propag_n, args.propag_n, x_offset);
     }
+    __syncthreads();
+
+    int t_idx = threadIdx.x / LANE_SIZE;
+    int l_idx = threadIdx.x % LANE_SIZE;
+    baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(
+      propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+
+    store_vector(args.propag_n, propag_n, x_offset);
   }
-  __syncthreads();
 
-  int AD = idx1;
-  int A = AD / Ns;
-  int D = AD % Ns;
-  int B = gamma_index(args.gamma_ab, A);
-  Complex128 gamma_ab_data = gamma_data<SWAP_AB>(args.gamma_ab, A);
-  int E = gamma_index(args.gamma_de, D);
-  Complex128 gamma_de_data = gamma_data<SWAP_DE>(args.gamma_de, D);
-  if constexpr (MODE == AD_BE_CF) {
-    int BE = B * Ns + E;
-    for (int b = 0; b < Nc; ++b) {
-      int c = (b + 1) % Nc, a = (b + 2) % Nc;
-      for (int e = 0; e < Nc; ++e) {
-        int f = (e + 1) % Nc, d = (e + 2) % Nc;
-        Complex128 tmp = 0;
-        for (int C = 0; C < Ns; ++C) {
-          int F = gamma_index<GAMMA_FC>(C);
-          Complex128 gamma_fc_data = gamma_data<GAMMA_FC, true>(C);
-          int CF = C * Ns + F;
-          tmp += gamma_fc_data
-            * (propag_c[idx0][CF][c * Nc + f] * propag_a[idx0][AD][a * Nc + d]
-               - propag_c[idx0][CF][a * Nc + f] * propag_a[idx0][AD][c * Nc + d]
-               - propag_c[idx0][CF][c * Nc + d] * propag_a[idx0][AD][a * Nc + f]
-               + propag_c[idx0][CF][a * Nc + d] * propag_a[idx0][AD][c * Nc + f]);
-        }
-        propag_b[idx0][BE][b * Nc + e] += gamma_ab_data * gamma_de_data * tmp;
-      }
-    }
-  } else if constexpr (MODE == AD_BF_CE) {
-    for (int b = 0; b < Nc; ++b) {
-      int c = (b + 1) % Nc, a = (b + 2) % Nc;
-      for (int e = 0; e < Nc; ++e) {
-        int f = (e + 1) % Nc, d = (e + 2) % Nc;
-        Complex128 tmp = 0;
-        for (int C = 0; C < Ns; ++C) {
-          int F = gamma_index<GAMMA_FC>(C);
-          Complex128 gamma_fc_data = gamma_data<GAMMA_FC, true>(C);
-          int BF = B * Ns + F;
-          int CE = C * Ns + E;
-          tmp = gamma_fc_data
-            * (propag_c[idx0][CE][c * Nc + f] * propag_a[idx0][AD][a * Nc + d]
-               - propag_c[idx0][CE][a * Nc + f] * propag_a[idx0][AD][c * Nc + d]
-               - propag_c[idx0][CE][c * Nc + d] * propag_a[idx0][AD][a * Nc + f]
-               + propag_c[idx0][CE][a * Nc + d] * propag_a[idx0][AD][c * Nc + f]);
-          propag_b[idx0][BF][b * Nc + e] += gamma_ab_data * gamma_de_data * tmp;
-        }
-      }
-    }
-  }
-  __syncthreads();
+  template <typename Args> struct BaryonSequentialIKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
+    constexpr BaryonSequentialIKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
 
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    if constexpr (SWAP_AB) {
-      static_cast<Complex128 *>(args.propag_a)[offset + pos] = propag_b[x][AB][ab];
-    } else {
-      static_cast<Complex128 *>(args.propag_b)[offset + pos] = propag_b[x][AB][ab];
-    }
-  }
-  __syncthreads();
+    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_sequential_i_kernel(this->args, x_offset); }
+  };
 
-  return;
-}
+  template <typename Args> struct BaryonSequentialJKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
+    constexpr BaryonSequentialJKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
 
-template <BaryonContractType CONTRACT, int GAMMA_FC> __global__ void baryon_sequential_c_kernel()
-{
-  const size_t x_block = blockIdx.x * TILE_SIZE;
-  const int thread_id = threadIdx.x;
-  const int idx0 = threadIdx.x / (Ns * Ns);
-  const int idx1 = threadIdx.x % (Ns * Ns);
+    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_sequential_j_kernel(this->args, x_offset); }
+  };
 
-  __shared__ Complex128 propag_a[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_b[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_c[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 correl[TILE_SIZE][Ns * Ns];
-  correl[idx0][idx1] = 0;
+  template <typename Args> struct BaryonSequentialNKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
+    constexpr BaryonSequentialNKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
 
-  constexpr bool SWAP_AB = (CONTRACT == AF_BD_CE || CONTRACT == AF_BE_CD);
-  constexpr bool SWAP_DE = (CONTRACT == AE_BD_CF || CONTRACT == AE_BF_CD || CONTRACT == AF_BE_CD);
-  constexpr BaryonContractType MODE = (CONTRACT == AD_BE_CF || CONTRACT == AE_BD_CF) ? AD_BE_CF : AD_BF_CE;
+    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_sequential_n_kernel(this->args, x_offset); }
+  };
 
-  size_t offset = x_block * (Ns * Ns * Nc * Nc);
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    if constexpr (SWAP_AB) {
-      propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_b)[offset + pos];
-      propag_b[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-      // propag_c[x][AB][ab] = static_cast<Complex128 *>(args.propag_c)[offset + pos];
-    } else {
-      propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-      propag_b[x][AB][ab] = static_cast<Complex128 *>(args.propag_b)[offset + pos];
-      // propag_c[x][AB][ab] = static_cast<Complex128 *>(args.propag_c)[offset + pos];
-    }
-  }
-  __syncthreads();
-
-  int AD = idx1;
-  int A = AD / Ns;
-  int D = AD % Ns;
-  int B = gamma_index(args.gamma_ab, A);
-  Complex128 gamma_ab_data = gamma_data<SWAP_AB>(args.gamma_ab, A);
-  int E = gamma_index(args.gamma_de, D);
-  Complex128 gamma_de_data = gamma_data<SWAP_DE>(args.gamma_de, D);
-  if constexpr (MODE == AD_BE_CF) {
-    int BE = B * Ns + E;
-    for (int c = 0; c < Nc; ++c) {
-      int a = (c + 1) % Nc, b = (c + 2) % Nc;
-      for (int f = 0; f < Nc; ++f) {
-        int d = (f + 1) % Nc, e = (f + 2) % Nc;
-        Complex128 tmp = 0;
-        for (int C = 0; C < Ns; ++C) {
-          int F = gamma_index<GAMMA_FC>(C);
-          Complex128 gamma_fc_data = gamma_data<GAMMA_FC, true>(C);
-          int CF = C * Ns + F;
-          tmp = gamma_fc_data
-            * (propag_a[idx0][AD][a * Nc + d] * propag_b[idx0][BE][b * Nc + e]
-               - propag_a[idx0][AD][b * Nc + d] * propag_b[idx0][BE][a * Nc + e]
-               - propag_a[idx0][AD][a * Nc + e] * propag_b[idx0][BE][b * Nc + d]
-               + propag_a[idx0][AD][b * Nc + e] * propag_b[idx0][BE][a * Nc + d]);
-          propag_c[idx0][CF][c * Nc + f] += gamma_ab_data * gamma_de_data * tmp;
-        }
-      }
-    }
-  } else if constexpr (MODE == AD_BF_CE) {
-    for (int c = 0; c < Nc; ++c) {
-      int a = (c + 1) % Nc, b = (c + 2) % Nc;
-      for (int f = 0; f < Nc; ++f) {
-        int d = (f + 1) % Nc, e = (f + 2) % Nc;
-        Complex128 tmp = 0;
-        for (int C = 0; C < Ns; ++C) {
-          int F = gamma_index<GAMMA_FC>(C);
-          Complex128 gamma_fc_data = gamma_data<GAMMA_FC, true>(C);
-          int BF = B * Ns + F;
-          int CE = C * Ns + E;
-          tmp = gamma_fc_data
-            * (propag_a[idx0][AD][a * Nc + d] * propag_b[idx0][BF][b * Nc + e]
-               - propag_a[idx0][AD][b * Nc + d] * propag_b[idx0][BF][a * Nc + e]
-               - propag_a[idx0][AD][a * Nc + e] * propag_b[idx0][BF][b * Nc + d]
-               + propag_a[idx0][AD][b * Nc + e] * propag_b[idx0][BF][a * Nc + d]);
-          propag_c[idx0][CE][c * Nc + f] += gamma_ab_data * gamma_de_data * tmp;
-        }
-      }
-    }
-  }
-  __syncthreads();
-
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    static_cast<Complex128 *>(args.propag_c)[offset + pos] = propag_c[x][AB][ab];
-  }
-  __syncthreads();
-
-  return;
-}
+}; // namespace contract

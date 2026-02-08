@@ -1,111 +1,131 @@
+#pragma once
+
 #include <array>
 
-template <int LANE_SIZE, typename T>
-__inline__ __device__ void load_tile(T (*dst)[LANE_SIZE], void *src, size_t x_offset, int x_idx, int idx)
+namespace contract
 {
-  if constexpr (LANE_SIZE == 1) {
-    dst[x_idx][idx] = static_cast<T *>(src)[x_offset + x_idx];
-  } else if constexpr (LANE_SIZE & (LANE_SIZE - 1) == 0) {
-    if (idx < 1) {
-      dst[x_idx][idx] = static_cast<T *>(src)[x_offset + x_idx];
-      dst[x_idx][idx + 1] = dst[x_idx][idx];
-    }
-    __syncthreads();
+
+  template <int LANE_SIZE, typename T> __device__ __forceinline__ void bcast_lane(T (*dst)[LANE_SIZE], T &src)
+  {
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
+    dst[t_idx][l_idx] = src;
+  }
+
+  template <int LANE_SIZE, typename T> __device__ __forceinline__ void reduce_lane(T &dst, T (*src)[LANE_SIZE])
+  {
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
+    if constexpr (LANE_SIZE == 1) {
+      dst = src[t_idx][0];
+    } else if constexpr (LANE_SIZE & (LANE_SIZE - 1) == 0) {
 #pragma unroll
-    for (int stride = 2; stride < LANE_SIZE; stride *= 2) {
-      if (idx < stride) { dst[x_idx][idx + stride] = dst[x_idx][idx]; }
+      for (int stride = LANE_SIZE / 2; stride > 1; stride /= 2) {
+        if (l_idx < stride) { src[t_idx][l_idx] += src[t_idx][l_idx + stride]; }
+        __syncthreads();
+      }
+      if (l_idx == 0) {
+        src[t_idx][l_idx] += src[t_idx][l_idx + 1];
+        dst = src[t_idx][0];
+      }
+      __syncthreads();
+    } else {
+      if (l_idx == 0) {
+#pragma unroll
+        for (int i = 1; i < LANE_SIZE; i++) { src[t_idx][0] += src[t_idx][i]; }
+        dst = src[t_idx][0];
+      }
       __syncthreads();
     }
-  } else {
-    if (idx < 1) {
-#pragma unroll
-      dst[x_idx][idx] = static_cast<T *>(src)[x_offset + x_idx];
-      for (int i = 1; i < LANE_SIZE; i++) { dst[x_idx][i] = dst[x_idx][idx]; }
-    }
-    __syncthreads();
   }
-}
 
-template <int LANE_SIZE, typename T>
-__inline__ __device__ void store_tile(void *dst, T (*src)[LANE_SIZE], size_t x_offset, int x_idx, int idx)
-{
-  if constexpr (LANE_SIZE == 1) {
-    static_cast<T *>(dst)[x_offset + x_idx] = src[x_idx][idx];
-  } else if constexpr (LANE_SIZE & (LANE_SIZE - 1) == 0) {
-#pragma unroll
-    for (int stride = LANE_SIZE / 2; stride > 1; stride /= 2) {
-      if (idx < stride) { src[x_idx][idx] += src[x_idx][idx + stride]; }
+  template <int LANE_SIZE, typename T> __device__ __forceinline__ void bcast_lane(T (*data)[LANE_SIZE])
+  {
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
+    if constexpr (LANE_SIZE == 1) {
+    } else {
+      if (l_idx > 0) { data[t_idx][l_idx] = data[t_idx][0]; }
       __syncthreads();
     }
-    if (idx < 1) {
-      src[x_idx][idx] += src[x_idx][idx + 1];
-      static_cast<T *>(dst)[x_offset + x_idx] = src[x_idx][idx];
+  }
+
+  template <int LANE_SIZE, typename T> __device__ __forceinline__ void reduce_lane(T (*data)[LANE_SIZE])
+  {
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
+    if constexpr (LANE_SIZE == 1) {
+    } else if constexpr (LANE_SIZE & (LANE_SIZE - 1) == 0) {
+#pragma unroll
+      for (int stride = LANE_SIZE / 2; stride > 0; stride /= 2) {
+        if (l_idx < stride) { data[t_idx][l_idx] += data[t_idx][l_idx + stride]; }
+        __syncthreads();
+      }
+    } else {
+      if (l_idx == 0) {
+#pragma unroll
+        for (int i = 1; i < LANE_SIZE; i++) { data[t_idx][0] += data[t_idx][i]; }
+      }
+      __syncthreads();
     }
-    __syncthreads();
-  } else {
-    if (idx < 1) {
-#pragma unroll
-      for (int i = 1; i < LANE_SIZE; i++) { src[x_idx][idx] += src[x_idx][i]; }
-      static_cast<T *>(dst)[x_offset + x_idx] = src[x_idx][idx];
+  }
+
+  template <int LANE_SIZE, typename T>
+  __device__ __forceinline__ void load_tile(T (*dst)[LANE_SIZE], void *src, size_t x_offset)
+  {
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
+    if constexpr (LANE_SIZE == 1) {
+      dst[t_idx][l_idx] = static_cast<T *>(src)[x_offset + t_idx];
+    } else {
+      if (l_idx == 0) { dst[t_idx][0] = static_cast<T *>(src)[x_offset + t_idx]; }
     }
-    __syncthreads();
   }
-}
 
-template <int LANE_SIZE, typename T>
-__inline__ __device__ void load_lane(T (*dst)[LANE_SIZE], void *src, size_t x_offset, int x_idx, int idx)
-{
-  size_t offset = x_offset * LANE_SIZE;
-  int pos = x_idx * LANE_SIZE + idx;
-  dst[x_idx][idx] = static_cast<T *>(src)[offset + pos];
-}
+  template <int LANE_SIZE, typename T>
+  __device__ __forceinline__ void store_tile(void *dst, T (*src)[LANE_SIZE], size_t x_offset)
+  {
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
+    if constexpr (LANE_SIZE == 1) {
+      static_cast<T *>(dst)[x_offset + t_idx] = src[t_idx][l_idx];
+    } else {
+      if (l_idx == 0) { static_cast<T *>(dst)[x_offset + t_idx] = src[t_idx][0]; }
+    }
+  }
 
-template <int LANE_SIZE, typename T>
-__inline__ __device__ void store_lane(void *dst, T (*src)[LANE_SIZE], size_t x_offset, int x_idx, int idx)
-{
-  size_t offset = x_offset * LANE_SIZE;
-  int pos = x_idx * LANE_SIZE + idx;
-  static_cast<T *>(dst)[offset + pos] = src[x_idx][idx];
-}
+  template <int LANE_SIZE, typename T>
+  __device__ __forceinline__ void load_lane(T (*dst)[LANE_SIZE], void *src, size_t x_offset)
+  {
+    size_t offset = x_offset * LANE_SIZE + threadIdx.x;
+    (&dst[0][0])[threadIdx.x] = static_cast<T *>(src)[offset];
+  }
 
-template <int LANE_SIZE, int VECTOR_SIZE, int BLOCK_SIZE, int N, typename T>
-__inline__ __device__ void load_vector(std::array<T (*)[LANE_SIZE][VECTOR_SIZE], N> dst, std::array<void *, N> src,
-                                       size_t x_offset, int x_idx, int idx)
-{
-  size_t offset = x_offset * LANE_SIZE * VECTOR_SIZE;
-  for (int pos = x_idx * LANE_SIZE + idx; pos < BLOCK_SIZE * VECTOR_SIZE; pos += BLOCK_SIZE) {
-    int t_idx = pos / VECTOR_SIZE / LANE_SIZE;
-    int l_idx = pos / VECTOR_SIZE % LANE_SIZE;
-    int v_idx = pos % VECTOR_SIZE;
+  template <int LANE_SIZE, typename T>
+  __device__ __forceinline__ void store_lane(void *dst, T (*src)[LANE_SIZE], size_t x_offset)
+  {
+    size_t offset = x_offset * LANE_SIZE + threadIdx.x;
+    static_cast<T *>(dst)[offset] = (&src[0][0])[threadIdx.x];
+  }
+
+  template <int LANE_SIZE, int VECTOR_SIZE, typename T>
+  __device__ __forceinline__ void load_vector(T (*dst)[LANE_SIZE][VECTOR_SIZE], void *src, size_t x_offset)
+  {
+    const size_t offset = x_offset * LANE_SIZE * VECTOR_SIZE + threadIdx.x;
 #pragma unroll
-    for (int i = 0; i < N; i++) { dst[i][t_idx][l_idx][v_idx] = static_cast<T *>(src[i])[offset + pos]; }
+    for (int v = 0; v < VECTOR_SIZE; v++) {
+      (&dst[0][0][0])[threadIdx.x + v * blockDim.x] = static_cast<T *>(src)[offset + v * blockDim.x];
+    }
   }
-  __syncthreads();
-}
 
-template <int LANE_SIZE, int VECTOR_SIZE, int BLOCK_SIZE, int N, typename T>
-__inline__ __device__ void store_vector(std::array<void *, N> dst, std::array<T (*)[LANE_SIZE][VECTOR_SIZE], N> src,
-                                        size_t x_offset, int x_idx, int idx)
-{
-  size_t offset = x_offset * LANE_SIZE * VECTOR_SIZE;
-  for (int pos = x_idx * LANE_SIZE + idx; pos < BLOCK_SIZE * VECTOR_SIZE; pos += BLOCK_SIZE) {
-    int t_idx = pos / VECTOR_SIZE / LANE_SIZE;
-    int l_idx = pos / VECTOR_SIZE % LANE_SIZE;
-    int v_idx = pos % VECTOR_SIZE;
+  template <int LANE_SIZE, int VECTOR_SIZE, typename T>
+  __device__ __forceinline__ void store_vector(void *dst, T (*src)[LANE_SIZE][VECTOR_SIZE], size_t x_offset)
+  {
+    const size_t offset = x_offset * LANE_SIZE * VECTOR_SIZE + threadIdx.x;
 #pragma unroll
-    for (int i = 0; i < N; i++) { static_cast<T *>(dst[i])[offset + pos] = src[i][t_idx][l_idx][v_idx]; }
+    for (int v = 0; v < VECTOR_SIZE; v++) {
+      static_cast<T *>(dst)[offset + v * blockDim.x] = (&src[0][0][0])[threadIdx.x + v * blockDim.x];
+    }
   }
-  __syncthreads();
-}
 
-template <int LANE_SIZE, int VECTOR_SIZE, int BLOCK_SIZE, typename T>
-__inline__ __device__ void load_vector(T (*dst)[LANE_SIZE][VECTOR_SIZE], void *src, size_t x_offset, int x_idx, int idx)
-{
-  load_vector<LANE_SIZE, VECTOR_SIZE, BLOCK_SIZE, 1, T>(std::array {dst}, std::array {src}, x_offset, x_idx, idx);
-}
-
-template <int LANE_SIZE, int VECTOR_SIZE, int BLOCK_SIZE, typename T>
-__inline__ __device__ void store_vector(void *dst, T (*src)[LANE_SIZE][VECTOR_SIZE], size_t x_offset, int x_idx, int idx)
-{
-  store_vector<LANE_SIZE, VECTOR_SIZE, BLOCK_SIZE, 1, T>(std::array {dst}, std::array {src}, x_offset, x_idx, idx);
-}
+}; // namespace contract

@@ -3,6 +3,8 @@
 #include <contract.h>
 #include <gamma.cuh>
 
+using namespace contract;
+
 const int Ns = 4;
 const int Nc = 3;
 const int BLOCK_SIZE = 64;
@@ -53,9 +55,9 @@ template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon_v2_kern
     const int i = im / Ns;
     const int m = im % Ns;
     const int j = gamma_index(args.gamma_ij, i);
-    const Complex128 gamma_ij_data = gamma_data<(CONTRACT == IN_JK_ML || CONTRACT == IN_JL_MK)>(args.gamma_ij, i);
+    const Complex128 gamma_ij_data = gamma_data<(CONTRACT == IN_JK_ML || CONTRACT == IN_JL_MK), double>(args.gamma_ij, i);
     const int n = gamma_index(args.gamma_mn, m);
-    const Complex128 gamma_mn_data = gamma_data<false>(args.gamma_mn, m);
+    const Complex128 gamma_mn_data = gamma_data<false, double>(args.gamma_mn, m);
     const int jn = j * Ns + n;
     for (int c = 0; c < Nc; ++c) {
       const int a = (c + 1) % Nc, b = (c + 2) % Nc;
@@ -67,7 +69,7 @@ template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon_v2_kern
           if constexpr (CONTRACT == IK_JN_ML || CONTRACT == IN_JK_ML) {
             int ik = i * Ns + k;
             int ml = m * Ns + l;
-            tmp += gamma_data<GAMMA, true>(l)
+            tmp += gamma_data<GAMMA, true, double>(l)
               * (propag_k[idx0][ik][a * Nc + d] * propag_l[idx0][ml][b * Nc + e]
                  - propag_k[idx0][ik][b * Nc + d] * propag_l[idx0][ml][a * Nc + e]
                  - propag_k[idx0][ik][a * Nc + e] * propag_l[idx0][ml][b * Nc + d]
@@ -75,7 +77,7 @@ template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon_v2_kern
           } else if constexpr (CONTRACT == IL_JN_MK || CONTRACT == IN_JL_MK) {
             int mk = m * Ns + k;
             int il = i * Ns + l;
-            tmp += gamma_data<GAMMA, true>(l)
+            tmp += gamma_data<GAMMA, true, double>(l)
               * (propag_k[idx0][mk][a * Nc + d] * propag_l[idx0][il][b * Nc + e]
                  - propag_k[idx0][mk][b * Nc + d] * propag_l[idx0][il][a * Nc + e]
                  - propag_k[idx0][mk][a * Nc + e] * propag_l[idx0][il][b * Nc + d]
@@ -92,9 +94,9 @@ template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon_v2_kern
     const int i = il / Ns;
     const int l = il % Ns;
     const int j = gamma_index(args.gamma_ij, i);
-    const Complex128 gamma_ij_data = gamma_data<(CONTRACT == IL_JK_MN)>(args.gamma_ij, i);
+    const Complex128 gamma_ij_data = gamma_data<(CONTRACT == IL_JK_MN), double>(args.gamma_ij, i);
     const int k = gamma_index(args.gamma_kl, l);
-    const Complex128 gamma_kl_data = gamma_data<true>(args.gamma_kl, l);
+    const Complex128 gamma_kl_data = gamma_data<true, double>(args.gamma_kl, l);
     const int ik = i * Ns + k;
     const int jl = j * Ns + l;
     for (int c = 0; c < Nc; ++c) {
@@ -105,7 +107,7 @@ template <BaryonContractType CONTRACT, int GAMMA> __global__ void baryon_v2_kern
         for (int m = 0; m < Ns; ++m) {
           int n = gamma_index<GAMMA>(m);
           int mn = m * Ns + n;
-          tmp += gamma_data<GAMMA, false>(m) * propag_n[idx0][mn][c * Nc + f];
+          tmp += gamma_data<GAMMA, false, double>(m) * propag_n[idx0][mn][c * Nc + f];
         }
         correl[idx0][idx1] += gamma_ij_data * gamma_kl_data * tmp
           * (propag_k[idx0][ik][a * Nc + d] * propag_l[idx0][jl][b * Nc + e]

@@ -3,7 +3,7 @@
 
 namespace meson_all_source
 {
-  void launch(void *correl[Ns * Ns], void *propag_a, void *propag_b, size_t volume, int gamma_ab)
+  void launch(void *correl[Ns * Ns], void *propag_i, void *propag_j, size_t volume, int gamma_ij)
   {
     if (volume % TILE_SIZE != 0) {
       fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
@@ -15,18 +15,16 @@ namespace meson_all_source
     dim3 gridDim(grid, 1U, 1U);
     dim3 blockDim(block, 1, 1);
 
-    Arguments args_h = {{}, propag_a, propag_b, gamma_ab};
-    for (int i = 0; i < Ns * Ns; ++i) { args_h.correl[i] = correl[i]; }
-    CUDA_ERROR_CHECK(cudaMemcpyToSymbol(args, &args_h, sizeof(Arguments)));
-    CUDA_ERROR_CHECK(cudaLaunchKernel(reinterpret_cast<void *>(meson_all_source_kernel), gridDim, blockDim, {}));
-
-    return;
+    using Args = contract::MesonAllArgs<double>;
+    using Kernel = contract::MesonAllSourceKernel<Args>;
+    Args args(correl, propag_i, propag_j, gamma_ij);
+    contract::launch_kernel<Kernel>(args, volume);
   }
 } // namespace meson_all_source
 
 namespace meson_all_sink
 {
-  void launch(void *correl[Ns * Ns], void *propag_a, void *propag_b, size_t volume, int gamma_dc)
+  void launch(void *correl[Ns * Ns], void *propag_i, void *propag_j, size_t volume, int gamma_kl)
   {
     if (volume % TILE_SIZE != 0) {
       fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
@@ -38,11 +36,9 @@ namespace meson_all_sink
     dim3 gridDim(grid, 1U, 1U);
     dim3 blockDim(block, 1, 1);
 
-    Arguments args_h = {{}, propag_a, propag_b, gamma_dc};
-    for (int i = 0; i < Ns * Ns; ++i) { args_h.correl[i] = correl[i]; }
-    CUDA_ERROR_CHECK(cudaMemcpyToSymbol(args, &args_h, sizeof(Arguments)));
-    CUDA_ERROR_CHECK(cudaLaunchKernel(reinterpret_cast<void *>(meson_all_sink_kernel), gridDim, blockDim, {}));
-
-    return;
+    using Args = contract::MesonAllArgs<double>;
+    using Kernel = contract::MesonAllSinkKernel<Args>;
+    Args args(correl, propag_i, propag_j, gamma_kl);
+    contract::launch_kernel<Kernel>(args, volume);
   }
 } // namespace meson_all_sink

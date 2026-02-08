@@ -4,15 +4,15 @@
 
 namespace meson
 {
-  void launch(void *correl, void *propag_a, void *propag_b, size_t volume, int gamma_ab, int gamma_dc);
+  void launch(void *correl, void *propag_i, void *propag_j, size_t volume, int gamma_ij, int gamma_kl);
 }
 
 namespace meson_all_source
 {
-  void launch(void **correl, void *propag_a, void *propag_b, size_t volume, int gamma_ab);
+  void launch(void **correl, void *propag_i, void *propag_j, size_t volume, int gamma_ij);
 }
 
 namespace meson_all_sink
 {
-  void launch(void **correl, void *propag_a, void *propag_b, size_t volume, int gamma_dc);
+  void launch(void **correl, void *propag_i, void *propag_j, size_t volume, int gamma_kl);
 }

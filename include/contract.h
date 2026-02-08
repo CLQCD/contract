@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <complex.h>
 #include <contract_define.h>
 
 #ifdef __cplusplus
@@ -30,20 +31,24 @@ typedef enum {
 } BaryonContractType;
 
 typedef enum {
-  PRESERVE_A,
-  PRESERVE_B,
-  PRESERVE_C,
+  SEQUENTIAL_I,
+  SEQUENTIAL_J,
+  SEQUENTIAL_N,
 } BaryonSequentialType;
 
 void init(int device);
-void meson_two_point(void *correl, void *propag_a, void *propag_b, unsigned long volume, int gamma_ab, int gamma_dc);
-void meson_all_source_two_point(void **correl, void *propag_a, void *propag_b, unsigned long volume, int gamma_ab);
-void meson_all_sink_two_point(void **correl, void *propag_a, void *propag_b, unsigned long volume, int gamma_dc);
-void baryon_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c, BaryonContractType contract_type,
-                      unsigned long volume, int gamma_ab, int gamma_de, int gamma_fc);
-void baryon_sequential_two_point(void *correl, void *propag_a, void *propag_b, void *propag_c,
-                                 BaryonContractType contract_type, BaryonSequentialType preserve_type,
-                                 unsigned long volume, int gamma_ab, int gamma_de, int gamma_fc);
+void meson_two_point(void *correl, void *propag_i, void *propag_j, unsigned long volume, int gamma_ij, int gamma_kl);
+void meson_all_source_two_point(void **correl, void *propag_i, void *propag_j, unsigned long volume, int gamma_ij);
+void meson_all_sink_two_point(void **correl, void *propag_i, void *propag_j, unsigned long volume, int gamma_kl);
+void baryon_diquark(void *diquark, void *propag_i, void *propag_j, size_t volume, int gamma_ij, int gamma_kl);
+void baryon_two_point(void *correl, void *propag_i, void *propag_j, void *propag_n, BaryonContractType contract_type,
+                      unsigned long volume, int gamma_ij, int gamma_kl, int gamma_mn);
+void baryon_general_two_point(void *correl, void *propag_i, void *propag_j, void *propag_n,
+                              BaryonContractType contract_type, size_t volume, int gamma_ij, int gamma_kl,
+                              double _Complex *project_mn);
+void baryon_sequential_two_point(void *propag_i, void *propag_j, void *propag_n, BaryonContractType contract_type,
+                                 BaryonSequentialType sequential_type, size_t volume, int gamma_ij, int gamma_kl,
+                                 int gamma_mn);
 void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
                          unsigned long volume, int gamma_ij, int gamma_kl, int gamma_mn);
 

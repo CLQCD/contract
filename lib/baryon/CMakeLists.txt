@@ -1,8 +1,10 @@
 add_library(baryon STATIC
+    diquark.cu
     baryon.cu
-    baryon_sequential_a.cu
-    baryon_sequential_b.cu
-    baryon_sequential_c.cu
+    baryon_general.cu
+    baryon_sequential_i.cu
+    baryon_sequential_j.cu
+    baryon_sequential_n.cu
     baryon_ik_jl_mn.cu
     baryon_ik_jn_ml.cu
     baryon_il_jk_mn.cu

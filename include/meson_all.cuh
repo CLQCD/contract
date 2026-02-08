@@ -1,127 +1,106 @@
 #pragma once
 
+#include <kernel.cuh>
 #include <contract.h>
 #include <gamma.cuh>
 
 const unsigned int Ns = 4;
 const unsigned int Nc = 3;
 const unsigned int BLOCK_SIZE = 64;
-const unsigned int TILE_SIZE = BLOCK_SIZE / (Ns * Ns);
+const unsigned int LANE_SIZE = Ns * Ns;
+const unsigned int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
 
-struct Arguments {
-  void *correl[Ns * Ns];
-  void *propag_a;
-  void *propag_b;
-  int gamma;
-};
-
-__constant__ Arguments args {};
-
-__global__ void meson_all_source_kernel()
+namespace contract
 {
-  const size_t x_block = blockIdx.x * TILE_SIZE;
-  const int thread_id = threadIdx.x;
-  const int idx0 = threadIdx.x / (Ns * Ns);
-  const int idx1 = threadIdx.x % (Ns * Ns);
 
-  __shared__ Complex128 propag_a[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_b[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 correl[TILE_SIZE][Ns * Ns];
-  correl[idx0][idx1] = 0;
+  template <typename F> struct MesonAllArgs {
+    using T = Complex<F>;
 
-  size_t offset = x_block * (Ns * Ns * Nc * Nc);
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-    propag_b[x][AB][ab] = conj(static_cast<Complex128 *>(args.propag_b)[offset + pos]);
-  }
-  __syncthreads();
+    void *correl[Ns * Ns];
+    void *propag_i;
+    void *propag_j;
+    int gamma;
 
-  int AD = idx1;
-  int A = AD / Ns;
-  int D = AD % Ns;
-  int B = gamma_index(args.gamma, A);
-  Complex128 gamma_ab_data = gamma_gamma5_data<true>(args.gamma, A);
-  for (int i = 0; i < Ns * Ns; ++i) {
-    int C = gamma_index(i, D);
-    Complex128 gamma_dc_data = gamma_gamma5_data<false>(i, D);
-    int BC = B * Ns + C;
-    Complex128 tmp = 0;
-    for (int a = 0; a < Nc; ++a) {
-      for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][BC][a * Nc + b]; }
+    MesonAllArgs(void *correl[Ns * Ns], void *propag_i, void *propag_j, int gamma) :
+      propag_i(propag_i), propag_j(propag_j), gamma(gamma)
+    {
+      for (int i = 0; i < Ns * Ns; i++) { this->correl[i] = correl[i]; }
     }
-    correl[idx0][idx1] = gamma_ab_data * gamma_dc_data * tmp;
-    __syncthreads();
+  };
 
-    if (idx1 < 8) { correl[idx0][idx1] += correl[idx0][idx1 + 8]; }
-    __syncthreads();
-    if (idx1 < 4) { correl[idx0][idx1] += correl[idx0][idx1 + 4]; }
-    __syncthreads();
-    if (idx1 < 2) { correl[idx0][idx1] += correl[idx0][idx1 + 2]; }
-    __syncthreads();
-    if (idx1 < 1) {
-      correl[idx0][idx1] += correl[idx0][idx1 + 1];
-      static_cast<Complex128 *>(args.correl[i])[x_block + idx0] = correl[idx0][idx1];
-    }
+  template <typename F>
+  __device__ __forceinline__ void meson_local(Complex<F> correl[Ns * Ns], const Complex<F> propag_i[Ns * Ns][Nc * Nc],
+                                              const Complex<F> propag_j[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl,
+                                              int idx)
+  {
+    using T = Complex<F>;
+    int il = idx;
+    int i = il / Ns;
+    int l = il % Ns;
+    int j = gamma_index(gamma_ij, i);
+    T gamma_ij_data = gamma_gamma5_data<true, F>(gamma_ij, i); // We actually need ji
+    int k = gamma_index(gamma_kl, l);
+    T gamma_kl_data = gamma_gamma5_data<true, F>(gamma_kl, l);
+    int ik = i * Ns + k;
+    int jl = j * Ns + l;
+    T tmp = 0;
+    for_a_d { tmp += propag_i[ik][ad] * conj(propag_j[jl][ad]); }
+    correl[idx] = gamma_ij_data * gamma_kl_data * tmp;
     __syncthreads();
   }
 
-  return;
-}
+  template <typename Args> __device__ void meson_all_source_kernel(const Args &args, size_t x_offset)
+  {
+    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
 
-__global__ void meson_all_sink_kernel()
-{
-  // const size_t volume = args.volume;
-  const size_t x_block = blockIdx.x * TILE_SIZE;
-  const int thread_id = threadIdx.x;
-  const int idx0 = threadIdx.x / (Ns * Ns);
-  const int idx1 = threadIdx.x % (Ns * Ns);
+    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
+    __syncthreads();
 
-  __shared__ Complex128 propag_a[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_b[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 correl[TILE_SIZE][Ns * Ns];
-  correl[idx0][idx1] = 0;
+    int t_idx = threadIdx.x / LANE_SIZE;
+    int l_idx = threadIdx.x % LANE_SIZE;
+    for (int gamma_kl = 0; gamma_kl < Ns * Ns; ++gamma_kl) {
+      meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma, gamma_kl, l_idx);
+      reduce_lane<Ns * Ns>(correl);
 
-  size_t offset = x_block * (Ns * Ns * Nc * Nc);
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
-    int x = pos / (Ns * Ns * Nc * Nc);
-    int AB = pos / (Nc * Nc) % (Ns * Ns);
-    int ab = pos % (Nc * Nc);
-    propag_a[x][AB][ab] = static_cast<Complex128 *>(args.propag_a)[offset + pos];
-    propag_b[x][AB][ab] = conj(static_cast<Complex128 *>(args.propag_b)[offset + pos]);
-  }
-  __syncthreads();
-
-  int AD = idx1;
-  int A = AD / Ns;
-  int D = AD % Ns;
-  int C = gamma_index(args.gamma, D);
-  Complex128 gamma_dc_data = gamma_gamma5_data<false>(args.gamma, D);
-  for (int i = 0; i < Ns * Ns; ++i) {
-    int B = gamma_index(i, A);
-    Complex128 gamma_ab_data = gamma_gamma5_data<true>(i, A);
-    int BC = B * Ns + C;
-    Complex128 tmp = 0;
-    for (int a = 0; a < Nc; ++a) {
-      for (int b = 0; b < Nc; ++b) { tmp += propag_a[idx0][AD][a * Nc + b] * propag_b[idx0][BC][a * Nc + b]; }
+      store_tile<Ns * Ns>(args.correl[gamma_kl], correl, x_offset);
+      __syncthreads();
     }
-    correl[idx0][idx1] = gamma_ab_data * gamma_dc_data * tmp;
-    __syncthreads();
-
-    if (idx1 < 8) { correl[idx0][idx1] += correl[idx0][idx1 + 8]; }
-    __syncthreads();
-    if (idx1 < 4) { correl[idx0][idx1] += correl[idx0][idx1 + 4]; }
-    __syncthreads();
-    if (idx1 < 2) { correl[idx0][idx1] += correl[idx0][idx1 + 2]; }
-    __syncthreads();
-    if (idx1 < 1) {
-      correl[idx0][idx1] += correl[idx0][idx1 + 1];
-      static_cast<Complex128 *>(args.correl[i])[x_block + idx0] = correl[idx0][idx1];
-    }
-    __syncthreads();
   }
 
-  return;
-}
+  template <typename Args> struct MesonAllSourceKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
+    constexpr MesonAllSourceKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+
+    __device__ __forceinline__ void operator()(size_t x_offset) { meson_all_source_kernel(this->args, x_offset); }
+  };
+
+  template <typename Args> __device__ void meson_all_sink_kernel(const Args &args, size_t x_offset)
+  {
+    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
+
+    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
+    __syncthreads();
+
+    int t_idx = threadIdx.x / LANE_SIZE;
+    int l_idx = threadIdx.x % LANE_SIZE;
+    for (int gamma_ij = 0; gamma_ij < Ns * Ns; ++gamma_ij) {
+      meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], gamma_ij, args.gamma, l_idx);
+      reduce_lane<Ns * Ns>(correl);
+
+      store_tile<Ns * Ns>(args.correl[gamma_ij], correl, x_offset);
+      __syncthreads();
+    }
+  }
+
+  template <typename Args> struct MesonAllSinkKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
+    constexpr MesonAllSinkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+
+    __device__ __forceinline__ void operator()(size_t x_offset) { meson_all_sink_kernel(this->args, x_offset); }
+  };
+
+} // namespace contract
