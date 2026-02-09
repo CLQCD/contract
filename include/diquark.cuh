@@ -49,12 +49,11 @@ namespace contract
         int j = gamma_index(GAMMA_IJ, i);
         int ik = i * Ns + k;
         int jm = j * Ns + m;
-        epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jm]);
+        tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jm]);
         tmp += gamma_data<false, F>(GAMMA_IJ, i) * tmp_color;
       }
       diquark[ml][ad] = gamma5_m_l * conj(gamma_kl_data * tmp);
     }
-    __syncthreads();
   }
 
   template <typename Args> __device__ void diquark_kernel(const Args &args, size_t x_offset)
@@ -63,15 +62,17 @@ namespace contract
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T diquark[TILE_SIZE][Ns * Ns][Nc * Nc];
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-    __syncthreads();
-
     int t_idx = threadIdx.x / LANE_SIZE;
     int l_idx = threadIdx.x % LANE_SIZE;
-    diquark_local<Args::GAMMA_IJ>(diquark[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma_kl, l_idx);
 
-    store_vector<Ns * Ns, Nc * Nc>(args.diquark, diquark, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+    __syncwarp();
+
+    diquark_local<Args::GAMMA_IJ>(diquark[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma_kl, l_idx);
+    __syncwarp();
+
+    store_vector<Ns * Ns, Nc * Nc>(args.diquark, diquark[t_idx], x_offset);
   }
 
   template <typename Args> struct DiquarkKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {

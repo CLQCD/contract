@@ -1,7 +1,6 @@
 #pragma once
 
 #include <runtime_api.h>
-#include <constant.cuh>
 #include <load_store.cuh>
 
 #define for_abc_def                                                                                                    \
@@ -15,17 +14,21 @@
     for (int d = 0; d < 3; ++d)                                                                                        \
       for (int ad = a * 3 + d, _once = 1; _once; _once = 0)
 
-#define epsilon_abc_def(_out, _in_1, _in_2)                                                                            \
-  do {                                                                                                                 \
-    _out = 0;                                                                                                          \
-    _out += _in_1[b * 3 + e] * _in_2[c * 3 + f];                                                                       \
-    _out -= _in_1[c * 3 + e] * _in_2[b * 3 + f];                                                                       \
-    _out -= _in_1[b * 3 + f] * _in_2[c * 3 + e];                                                                       \
-    _out += _in_1[c * 3 + f] * _in_2[b * 3 + e];                                                                       \
-  } while (0)
+#define epsilon_abc_def(_in_1, _in_2)                                                                                  \
+  ({                                                                                                                   \
+    auto _v1 = _in_1[b * 3 + e] * _in_2[c * 3 + f] + _in_1[c * 3 + f] * _in_2[b * 3 + e];                              \
+    auto _v2 = _in_1[c * 3 + e] * _in_2[b * 3 + f] + _in_1[b * 3 + f] * _in_2[c * 3 + e];                              \
+    _v1 - _v2;                                                                                                         \
+  })
 
 namespace contract
 {
+
+  constexpr size_t constant_buffer_size() { return 32764; };
+
+  __constant__ char buffer[constant_buffer_size()];
+
+  template <typename Args> constexpr Args &get_args() { return reinterpret_cast<Args &>(buffer); }
 
   template <typename Args, int BLOCK_SIZE_, int LANE_SIZE_> struct BaseKernel {
     const Args &args;
@@ -51,9 +54,10 @@ namespace contract
     unsigned int grid = (volume * Kernel::LANE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
     unsigned int block = Kernel::BLOCK_SIZE;
 
-    static_assert(sizeof(Args) <= buffer_size, "Parameter struct is greater than max constant size");
-    device_memcpy_host_to_device(get_buffer<Args>(), &args, sizeof(Args));
-    device_launch_kernel(kernel<Kernel, Args>, grid, block);
+    static_assert(sizeof(Args) <= constant_buffer_size(), "Parameter struct is greater than max constant buffer size");
+    target_memcpy_to_symbol(buffer, &args, sizeof(Args));
+    void (*func)() = kernel<Kernel, Args>;
+    target_launch_kernel(func, grid, block);
   }
 
 } // namespace contract

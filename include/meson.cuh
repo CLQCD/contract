@@ -46,7 +46,6 @@ namespace contract
     T tmp = 0;
     for_a_d { tmp += propag_i[ik][ad] * conj(propag_j[jl][ad]); }
     correl[idx] = gamma_ij_data * gamma_kl_data * tmp;
-    __syncthreads();
   }
 
   template <typename Args> __device__ void meson_kernel(const Args &args, size_t x_offset)
@@ -55,16 +54,18 @@ namespace contract
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-    __syncthreads();
-
     int t_idx = threadIdx.x / LANE_SIZE;
     int l_idx = threadIdx.x % LANE_SIZE;
-    meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
-    reduce_lane<Ns * Ns>(correl);
 
-    store_tile<Ns * Ns>(args.correl, correl, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+    __syncwarp(); // Seems better?
+
+    meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+    __syncwarp();
+
+    reduce_lane<Ns * Ns>(correl[t_idx]);
+    store_tile<Ns * Ns>(args.correl, correl[t_idx], x_offset);
   }
 
   template <typename Args> struct MesonKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {

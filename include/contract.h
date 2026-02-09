@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <complex.h>
-#include <contract_define.h>
 
 #ifdef __cplusplus
 extern "C" {

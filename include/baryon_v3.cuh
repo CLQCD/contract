@@ -61,7 +61,7 @@ namespace contract
           int nm = n * Ns + m;
           tmp += gamma_data<true, F>(GAMMA_MN, n) * propag_n[nm][ad];
         }
-        epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jl]);
+        tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jl]);
         correl[idx] += gamma_ij_data * gamma_kl_data * tmp * tmp_color;
       }
     } else if constexpr (CONTRACT == IK_JM_NL || CONTRACT == IM_JK_NL || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK) {
@@ -73,13 +73,12 @@ namespace contract
           int m = gamma_index(GAMMA_MN, n);
           int jm = j * Ns + m;
           int nl = n * Ns + l;
-          epsilon_abc_def(tmp_color, propag_j[jm], propag_n[nl]);
+          tmp_color = epsilon_abc_def(propag_j[jm], propag_n[nl]);
           tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
         }
         correl[idx] += gamma_ij_data * gamma_kl_data * tmp * propag_i[ik][ad];
       }
     }
-    __syncthreads();
   }
 
   template <typename Args> __device__ void baryon_kernel(const Args &args, size_t x_offset)
@@ -89,26 +88,27 @@ namespace contract
     __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
 
+    const int t_idx = threadIdx.x / LANE_SIZE;
+    const int l_idx = threadIdx.x % LANE_SIZE;
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n, args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n, args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
     }
-    __syncthreads();
+    __syncwarp();
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
     baryon_local<Args::CONTRACT, Args::GAMMA_MN>(correl[t_idx], propag_i[t_idx], propag_j[t_idx], propag_n[t_idx],
                                                  args.gamma_ij, args.gamma_kl, l_idx);
-    reduce_lane<Ns * Ns>(correl);
+    __syncwarp();
 
-    store_tile<Ns * Ns>(args.correl, correl, x_offset);
+    reduce_lane<Ns * Ns>(correl[t_idx]);
+    store_tile<Ns * Ns>(args.correl, correl[t_idx], x_offset);
   }
 
   template <typename Args> struct BaryonKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {

@@ -49,8 +49,8 @@ namespace contract
     int k = gamma_index(gamma_kl, l);
     T gamma_kl_data = gamma_data<!SWAP_KL, F>(gamma_kl, l);
     int ik = i * Ns + k;
-    int jl = j * Ns + l;
     if constexpr (CONTRACT == IK_JL_NM || CONTRACT == IL_JK_NM) {
+      int jl = j * Ns + l;
       if constexpr (SEQUENTIAL == SEQUENTIAL_I) {
         for_abc_def
         {
@@ -58,12 +58,11 @@ namespace contract
           for (int n = 0; n < Ns; ++n) {
             int m = gamma_index(GAMMA_MN, n);
             int nm = n * Ns + m;
-            epsilon_abc_def(tmp_color, propag_j[jl], propag_n[nm]);
+            tmp_color = epsilon_abc_def(propag_j[jl], propag_n[nm]);
             tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
           }
           propag_i[ik][ad] = gamma_ij_data * gamma_kl_data * tmp;
         }
-        __syncthreads();
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_J) {
         for_abc_def
         {
@@ -71,37 +70,35 @@ namespace contract
           for (int n = 0; n < Ns; ++n) {
             int m = gamma_index(GAMMA_MN, n);
             int nm = n * Ns + m;
-            epsilon_abc_def(tmp_color, propag_i[ik], propag_n[nm]);
+            tmp_color = epsilon_abc_def(propag_i[ik], propag_n[nm]);
             tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
           }
           propag_j[jl][ad] = gamma_ij_data * gamma_kl_data * tmp;
         }
-        __syncthreads();
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_N) {
         for_abc_def
         {
           T tmp_color;
-          epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jl]);
-          propag_n[il][ad] = gamma_ij_data * gamma_kl_data * tmp_color;
+          tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jl]);
+          propag_n[idx][ad] = gamma_ij_data * gamma_kl_data * tmp_color;
         }
-        __syncthreads();
+        __syncwarp();
 #pragma unroll
-        for (int stride = LANE_SIZE / 2; stride > 1; stride /= 2) {
+        for (int stride = LANE_SIZE / 2; stride > 0; stride /= 2) {
           if (idx < stride) {
             for_a_d { propag_n[idx][ad] += propag_n[idx + stride][ad]; }
           }
-          __syncthreads();
+          __syncwarp();
         }
         if (idx > 0) {
           for_a_d { propag_n[idx][ad] = propag_n[0][ad]; }
         }
-        __syncthreads();
+        __syncwarp();
         int nm = idx;
         int n = nm / Ns;
         int m = nm % Ns;
         T gamma_mn_data = gamma_data<true, F>(GAMMA_MN, n, m);
-        for_a_d { propag_n[nm][ad] *= gamma_mn_data * propag_n[nm][ad]; }
-        __syncthreads();
+        for_a_d { propag_n[nm][ad] *= gamma_mn_data; }
       }
     } else if constexpr (CONTRACT == IK_JM_NL || CONTRACT == IM_JK_NL || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK) {
       if constexpr (SEQUENTIAL == SEQUENTIAL_I) {
@@ -112,13 +109,14 @@ namespace contract
             int m = gamma_index(GAMMA_MN, n);
             int jm = j * Ns + m;
             int nl = n * Ns + l;
-            epsilon_abc_def(tmp_color, propag_j[jm], propag_n[nl]);
+            tmp_color = epsilon_abc_def(propag_j[jm], propag_n[nl]);
             tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
           }
           propag_i[ik][ad] = gamma_ij_data * gamma_kl_data * tmp;
         }
-        __syncthreads();
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_J) {
+        for_a_d { propag_j[idx][ad] = 0; }
+        __syncwarp();
         for_abc_def
         {
           T tmp = 0, tmp_color;
@@ -126,15 +124,16 @@ namespace contract
             int m = gamma_index(GAMMA_MN, n);
             int jm = j * Ns + m;
             int nl = n * Ns + l;
-            epsilon_abc_def(tmp_color, propag_i[ik], propag_n[nl]);
+            tmp_color = epsilon_abc_def(propag_i[ik], propag_n[nl]);
             tmp = gamma_ij_data * gamma_kl_data * gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
-            F *propag_j_ptr = reinterpret_cast<double *>(&propag_j[jm][ad]);
+            F *propag_j_ptr = reinterpret_cast<F *>(&propag_j[jm][ad]);
             atomicAdd(&propag_j_ptr[0], tmp.real());
             atomicAdd(&propag_j_ptr[1], tmp.imag());
           }
         }
-        __syncthreads();
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_N) {
+        for_a_d { propag_n[idx][ad] = 0; }
+        __syncwarp();
         for_abc_def
         {
           T tmp = 0, tmp_color;
@@ -142,14 +141,13 @@ namespace contract
             int m = gamma_index(GAMMA_MN, n);
             int jm = j * Ns + m;
             int nl = n * Ns + l;
-            epsilon_abc_def(tmp_color, propag_i[ik], propag_j[jm]);
+            tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jm]);
             tmp = gamma_ij_data * gamma_kl_data * gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
             F *propag_n_ptr = reinterpret_cast<double *>(&propag_n[nl][ad]);
             atomicAdd(&propag_n_ptr[0], tmp.real());
             atomicAdd(&propag_n_ptr[1], tmp.imag());
           }
         }
-        __syncthreads();
       }
     }
   }
@@ -160,32 +158,34 @@ namespace contract
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
 
+    int t_idx = threadIdx.x / LANE_SIZE;
+    int l_idx = threadIdx.x % LANE_SIZE;
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector(propag_i, args.propag_j, x_offset);
-      // load_vector(propag_j, args.propag_i, x_offset);
-      load_vector(propag_n, args.propag_n, x_offset);
-      __syncthreads();
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      __syncwarp();
 
-      int t_idx = threadIdx.x / LANE_SIZE;
-      int l_idx = threadIdx.x % LANE_SIZE;
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
         propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+      __syncwarp();
 
-      store_vector(args.propag_i, propag_j, x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_j[t_idx], x_offset);
     } else {
-      // load_vector(propag_i, args.propag_i, x_offset);
-      load_vector(propag_j, args.propag_j, x_offset);
-      load_vector(propag_n, args.propag_n, x_offset);
-      __syncthreads();
+      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      __syncwarp();
 
       int t_idx = threadIdx.x / LANE_SIZE;
       int l_idx = threadIdx.x % LANE_SIZE;
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
         propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+      __syncwarp();
 
-      store_vector(args.propag_i, propag_i, x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_i[t_idx], x_offset);
     }
   }
 
@@ -195,32 +195,32 @@ namespace contract
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
 
+    int t_idx = threadIdx.x / LANE_SIZE;
+    int l_idx = threadIdx.x % LANE_SIZE;
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      // load_vector(propag_i, args.propag_j, x_offset);
-      load_vector(propag_j, args.propag_i, x_offset);
-      load_vector(propag_n, args.propag_n, x_offset);
-      __syncthreads();
+      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      __syncwarp();
 
-      int t_idx = threadIdx.x / LANE_SIZE;
-      int l_idx = threadIdx.x % LANE_SIZE;
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
         propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+      __syncwarp();
 
-      store_vector(args.propag_j, propag_i, x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_i[t_idx], x_offset);
     } else {
-      load_vector(propag_i, args.propag_i, x_offset);
-      // load_vector(propag_j, args.propag_j, x_offset);
-      load_vector(propag_n, args.propag_n, x_offset);
-      __syncthreads();
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      __syncwarp();
 
-      int t_idx = threadIdx.x / LANE_SIZE;
-      int l_idx = threadIdx.x % LANE_SIZE;
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
         propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+      __syncwarp();
 
-      store_vector(args.propag_j, propag_j, x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_j[t_idx], x_offset);
     }
   }
 
@@ -230,25 +230,26 @@ namespace contract
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
 
+    int t_idx = threadIdx.x / LANE_SIZE;
+    int l_idx = threadIdx.x % LANE_SIZE;
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector(propag_i, args.propag_j, x_offset);
-      load_vector(propag_j, args.propag_i, x_offset);
-      // load_vector(propag_n, args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
     } else {
-      load_vector(propag_i, args.propag_i, x_offset);
-      load_vector(propag_j, args.propag_j, x_offset);
-      // load_vector(propag_n, args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
     }
-    __syncthreads();
+    __syncwarp();
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
     baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(
       propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
+    __syncwarp();
 
-    store_vector(args.propag_n, propag_n, x_offset);
+    store_vector<Ns * Ns, Nc * Nc>(args.propag_n, propag_n[t_idx], x_offset);
   }
 
   template <typename Args> struct BaryonSequentialIKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {

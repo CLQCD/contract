@@ -69,4 +69,4 @@ namespace baryon_sequential_n
     }
   }
 
-} // namespace baryon_sequential
+} // namespace baryon_sequential_n

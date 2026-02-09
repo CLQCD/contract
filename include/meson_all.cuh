@@ -46,7 +46,6 @@ namespace contract
     T tmp = 0;
     for_a_d { tmp += propag_i[ik][ad] * conj(propag_j[jl][ad]); }
     correl[idx] = gamma_ij_data * gamma_kl_data * tmp;
-    __syncthreads();
   }
 
   template <typename Args> __device__ void meson_all_source_kernel(const Args &args, size_t x_offset)
@@ -63,10 +62,11 @@ namespace contract
     int l_idx = threadIdx.x % LANE_SIZE;
     for (int gamma_kl = 0; gamma_kl < Ns * Ns; ++gamma_kl) {
       meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma, gamma_kl, l_idx);
-      reduce_lane<Ns * Ns>(correl);
+      __syncwarp();
 
-      store_tile<Ns * Ns>(args.correl[gamma_kl], correl, x_offset);
-      __syncthreads();
+      reduce_lane<Ns * Ns>(correl[t_idx]);
+      store_tile<Ns * Ns>(args.correl[gamma_kl], correl[t_idx], x_offset);
+      __syncwarp();
     }
   }
 
@@ -82,18 +82,20 @@ namespace contract
     __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-    __syncthreads();
-
     int t_idx = threadIdx.x / LANE_SIZE;
     int l_idx = threadIdx.x % LANE_SIZE;
+
+    load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
+    __syncwarp();
+
     for (int gamma_ij = 0; gamma_ij < Ns * Ns; ++gamma_ij) {
       meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], gamma_ij, args.gamma, l_idx);
-      reduce_lane<Ns * Ns>(correl);
+      __syncwarp();
 
-      store_tile<Ns * Ns>(args.correl[gamma_ij], correl, x_offset);
-      __syncthreads();
+      reduce_lane<Ns * Ns>(correl[t_idx]);
+      store_tile<Ns * Ns>(args.correl[gamma_ij], correl[t_idx], x_offset);
+      __syncwarp();
     }
   }
 

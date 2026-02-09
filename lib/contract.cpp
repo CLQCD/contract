@@ -80,6 +80,6 @@ void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *pro
 
 void init(int device)
 {
-  device_set(device);
+  target_set_device(device);
   return;
 }
