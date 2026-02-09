@@ -57,9 +57,9 @@ namespace contract
     int t_idx = threadIdx.x / LANE_SIZE;
     int l_idx = threadIdx.x % LANE_SIZE;
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-    __syncwarp(); // Seems better?
+    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
+    __syncthreads(); // Seems better?
 
     meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
     __syncwarp();
