@@ -60,7 +60,7 @@ namespace contract
 
     static_assert(sizeof(Args) <= constant_buffer_size(), "Parameter struct is greater than max constant buffer size");
     target_memcpy_to_symbol(buffer, &args, sizeof(Args));
-    void (*func)() = kernel<Kernel, Args>;
+    const void *func = reinterpret_cast<const void *>(kernel<Kernel, Args>);
     target_launch_kernel(func, grid, block);
   }
 

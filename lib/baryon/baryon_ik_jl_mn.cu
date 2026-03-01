@@ -4,7 +4,6 @@
 void baryon_ik_jl_mn(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,
                      int gamma_kl, int gamma_mn)
 {
-#ifdef GPU_TARGET_CUDA
   if (volume % TILE_SIZE != 0) {
     fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
     exit(-1);
@@ -16,8 +15,12 @@ void baryon_ik_jl_mn(void *correl, void *propag_i, void *propag_j, void *propag_
   dim3 blockDim(block, 1, 1);
 
   Arguments args_h = {correl, propag_i, propag_j, propag_m, gamma_ij, gamma_kl, gamma_mn};
+#if defined(GPU_TARGET_CUDA)
   cudaMemcpyToSymbol(args, &args_h, sizeof(Arguments));
   cudaLaunchKernel(instantiate<IK_JL_MN>(gamma_mn), gridDim, blockDim, {});
+#elif defined(GPU_TARGET_HIP)
+  hipMemcpyToSymbol(args, &args_h, sizeof(Arguments));
+  hipLaunchKernel(instantiate<IK_JL_MN>(gamma_mn), gridDim, blockDim, {});
 #endif
   return;
 }

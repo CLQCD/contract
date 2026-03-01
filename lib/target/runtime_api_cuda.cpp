@@ -30,10 +30,9 @@ namespace target
     cuda_error_check(cudaMemcpyToSymbol(symbol, src, count), file, line);
   }
 
-  void launch_kernel(void (*func)(), unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
+  void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
   {
-    cuda_error_check(cudaLaunchKernel(reinterpret_cast<const void *>(func), dim3(grid_dim), dim3(block_dim), {}, 0, 0),
-                     file, line);
+    cuda_error_check(cudaLaunchKernel(func, dim3(grid_dim), dim3(block_dim), {}, 0, 0), file, line);
   }
 
   event_t event_create(const char *file, int line)
