@@ -20,7 +20,7 @@ void baryon_il_jk_mn(void *correl, void *propag_i, void *propag_j, void *propag_
   cudaLaunchKernel(instantiate<IL_JK_MN>(gamma_mn), gridDim, blockDim, {});
 #elif defined(GPU_TARGET_HIP)
   hipMemcpyToSymbol(args, &args_h, sizeof(Arguments));
-  hipLaunchKernel(instantiate<IL_JK_MN>(gamma_kl), gridDim, blockDim, {});
+  hipLaunchKernel(instantiate<IL_JK_MN>(gamma_mn), gridDim, blockDim, {});
 #endif
   return;
 }

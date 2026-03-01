@@ -14,8 +14,8 @@ void baryon_il_jn_mk(void *correl, void *propag_i, void *propag_j, void *propag_
   dim3 gridDim(grid, 1, 1);
   dim3 blockDim(block, 1, 1);
 
-#if defined(GPU_TARGET_CUDA)
   Arguments args_h = {correl, propag_m, propag_i, propag_j, gamma_ij, gamma_kl, gamma_mn};
+#if defined(GPU_TARGET_CUDA)
   cudaMemcpyToSymbol(args, &args_h, sizeof(Arguments));
   cudaLaunchKernel(instantiate<IL_JN_MK>(gamma_kl), gridDim, blockDim, {});
 #elif defined(GPU_TARGET_HIP)
