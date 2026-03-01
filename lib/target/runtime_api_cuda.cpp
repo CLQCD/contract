@@ -1,5 +1,5 @@
 #include <cstdio>
-#include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
 #include <runtime_api.h>
 
 #define cuda_error_check(_call, _file, _line)                                                                          \
@@ -32,7 +32,8 @@ namespace target
 
   void launch_kernel(void (*func)(), unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
   {
-    cuda_error_check(cudaLaunchKernel(func, dim3(grid_dim), dim3(block_dim), {}), file, line);
+    cuda_error_check(cudaLaunchKernel(reinterpret_cast<const void *>(func), dim3(grid_dim), dim3(block_dim), {}, 0, 0),
+                     file, line);
   }
 
   event_t event_create(const char *file, int line)

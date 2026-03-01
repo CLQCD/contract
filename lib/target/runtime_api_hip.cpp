@@ -32,7 +32,8 @@ namespace target
 
   void launch_kernel(void (*func)(), unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
   {
-    hip_error_check(hipLaunchKernel(func, dim3(grid_dim), dim3(block_dim), {}), file, line);
+    hip_error_check(hipLaunchKernel(reinterpret_cast<const void *>(func), dim3(grid_dim), dim3(block_dim), {}, 0, 0),
+                    file, line);
   }
 
   event_t event_create(const char *file, int line)

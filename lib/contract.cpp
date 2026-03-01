@@ -39,7 +39,7 @@ void baryon_general_two_point(void *correl, void *propag_i, void *propag_j, void
                               double _Complex *project_mn)
 {
   std::complex<double> project_mn_[16];
-  for (int ij = 0; ij < 16; ++ij) { project_mn_[ij] = project_mn[ij]; }
+  for (int ij = 0; ij < 16; ++ij) { project_mn_[ij] = {creal(project_mn[ij]), cimag(project_mn[ij])}; }
   baryon_general::launch(correl, propag_i, propag_j, propag_n, contract_type, volume, gamma_ij, gamma_kl, project_mn_);
   return;
 }
