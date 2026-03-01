@@ -6,12 +6,17 @@
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 #elif defined(GPU_TARGET_HIP)
+#include <hip/hip_runtime.h>
 #include <hip/hip_cooperative_groups.h>
 #endif
 
 namespace cg = cooperative_groups;
 using cg_block = cg::thread_block;
+#if defined(GPU_TARGET_CUDA)
 template <unsigned int Size> using cg_tile = cg::thread_block_tile<Size, cg_block>;
+#elif defined(GPU_TARGET_HIP)
+template <unsigned int Size> using cg_tile = cg::thread_block_tile<Size>;
+#endif
 
 #define for_abc_def                                                                                                    \
   for (int a = 0; a < 3; ++a)                                                                                          \

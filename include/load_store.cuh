@@ -7,6 +7,20 @@ namespace contract
 {
 
   template <int TILE_SIZE, typename T>
+  __device__ __forceinline__ T tile_shfl_down(T var, unsigned int delta, cg_tile<TILE_SIZE> tile)
+  {
+    return tile.shfl_down(var, delta);
+  }
+
+  template <int TILE_SIZE, typename F>
+  __device__ __forceinline__ Complex<F> tile_shfl_down(Complex<F> var, unsigned int delta, cg_tile<TILE_SIZE> tile)
+  {
+    F r = tile.shfl_down(var.real(), delta);
+    F i = tile.shfl_down(var.imag(), delta);
+    return Complex<F>(r, i);
+  }
+
+  template <int TILE_SIZE, typename T>
   __device__ __forceinline__ void bcast_lane(T data[TILE_SIZE], cg_tile<TILE_SIZE> tile)
   {
     auto tid = tile.thread_rank();
@@ -17,7 +31,13 @@ namespace contract
   __device__ __forceinline__ void reduce_lane(T data[TILE_SIZE], cg_tile<TILE_SIZE> tile)
   {
     auto tid = tile.thread_rank();
+#if defined(GPU_TARGET_CUDA)
     T var = cg::reduce(tile, data[tid], cg::plus<T>());
+#elif defined(GPU_TARGET_HIP)
+    T var = data[tid];
+#pragma unroll
+    for (int stride = TILE_SIZE / 2; stride > 0; stride /= 2) { var += tile_shfl_down<TILE_SIZE>(var, stride, tile); }
+#endif
     if (tid == 0) data[0] = var;
   }
 
