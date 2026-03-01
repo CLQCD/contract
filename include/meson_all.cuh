@@ -1,7 +1,7 @@
 #pragma once
 
 #include <kernel.cuh>
-#include <contract.h>
+#include <contract_enum.h>
 #include <gamma.cuh>
 
 const unsigned int Ns = 4;

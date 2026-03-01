@@ -1,4 +1,4 @@
-add_library(baryon STATIC
+set(baryon_sources
     diquark.cu
     baryon.cu
     baryon_general.cu
@@ -12,4 +12,7 @@ add_library(baryon STATIC
     baryon_in_jk_ml.cu
     baryon_in_jl_mk.cu
 )
+
+set_source_files_language(${baryon_sources})
+add_library(baryon STATIC ${baryon_sources})
 set_property(TARGET baryon PROPERTY POSITION_INDEPENDENT_CODE ON)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <contract.h>
+#include <contract_enum.h>
 #include <gamma.cuh>
 
 using namespace contract;

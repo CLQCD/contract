@@ -1,7 +1,7 @@
 #pragma once
 
 #include <kernel.cuh>
-#include <contract.h>
+#include <contract_enum.h>
 #include <gamma.cuh>
 
 constexpr int Ns = 4;

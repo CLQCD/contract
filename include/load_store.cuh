@@ -7,14 +7,23 @@ namespace contract
 
   template <typename F> __device__ __forceinline__ F warp_shfl_down(F var, unsigned int delta)
   {
+#if defined(GPU_TARGET_CUDA)
     return __shfl_down_sync(0xffffffff, var, delta);
+#elif defined(GPU_TARGET_HIP)
+    return __shfl_down(var, delta);
+#endif
   }
 
   template <typename F> __device__ __forceinline__ Complex<F> warp_shfl_down(Complex<F> var, unsigned int delta)
   {
     using T = Complex<F>;
+#if defined(GPU_TARGET_CUDA)
     F r = __shfl_down_sync(0xffffffff, var.real(), delta);
     F i = __shfl_down_sync(0xffffffff, var.imag(), delta);
+#elif defined(GPU_TARGET_HIP)
+    F r = __shfl_down(var.real(), delta);
+    F i = __shfl_down(var.imag(), delta);
+#endif
     return T(r, i);
   }
 
@@ -33,7 +42,7 @@ namespace contract
     static_assert(LANE_SIZE <= 32, "LANE_SIZE must be smaller than the warp size");
     const int l_idx = threadIdx.x % LANE_SIZE;
     if constexpr (LANE_SIZE == 1) {
-    } else if constexpr (LANE_SIZE & (LANE_SIZE - 1) == 0) {
+    } else if constexpr ((LANE_SIZE & (LANE_SIZE - 1)) == 0) {
       T var = data[l_idx];
 #pragma unroll
       for (int stride = LANE_SIZE / 2; stride > 0; stride /= 2) { var += warp_shfl_down(var, stride); }
@@ -61,7 +70,7 @@ namespace contract
     const int t_idx = threadIdx.x / LANE_SIZE;
     const int l_idx = threadIdx.x % LANE_SIZE;
     if constexpr (LANE_SIZE == 1) {
-    } else if constexpr (LANE_SIZE & (LANE_SIZE - 1) == 0) {
+    } else if constexpr ((LANE_SIZE & (LANE_SIZE - 1)) == 0) {
 #pragma unroll
       for (int stride = LANE_SIZE / 2; stride > 1; stride /= 2) {
         if (l_idx < stride) { data[t_idx][l_idx] += data[t_idx][l_idx + stride]; }

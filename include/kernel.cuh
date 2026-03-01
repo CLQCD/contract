@@ -3,6 +3,10 @@
 #include <runtime_api.h>
 #include <load_store.cuh>
 
+#ifdef GPU_TARGET_HIP
+#define __syncwarp() __builtin_amdgcn_wave_barrier()
+#endif
+
 #define for_abc_def                                                                                                    \
   for (int a = 0; a < 3; ++a)                                                                                          \
     for (int b = (a + 1) % 3, c = (a + 2) % 3, _once_abc = 1; _once_abc; _once_abc = 0)                                \

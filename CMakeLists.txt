@@ -15,6 +15,9 @@ if(${GPU_TARGET} STREQUAL "cuda")
     set_property(CACHE GPU_ARCH PROPERTY STRINGS "60;61;70;75;80;86;89;90")
     set(CMAKE_CUDA_ARCHITECTURES ${GPU_ARCH})
 
+    add_compile_definitions(
+        $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:GPU_TARGET_CUDA>
+    )
     add_compile_options(
         $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:-Wno-deprecated-gpu-targets>
         $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:--expt-relaxed-constexpr>
@@ -25,6 +28,10 @@ elseif(${GPU_TARGET} STREQUAL "hip")
     set(GPU_ARCH gfx906 CACHE STRING "GPU architecture (gfx906 gfx908 gfx90a gfx942 gfx950)")
     set_property(CACHE GPU_ARCH PROPERTY STRINGS "gfx906;gfx908;gfx90a;gfx942;gfx950")
     set(CMAKE_HIP_ARCHITECTURES ${GPU_ARCH})
+
+    add_compile_definitions(
+        $<$<COMPILE_LANG_AND_ID:HIP,Clang>:GPU_TARGET_HIP>
+    )
 endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
