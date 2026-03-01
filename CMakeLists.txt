@@ -16,8 +16,8 @@ if(${GPU_TARGET} STREQUAL "cuda")
     set(CMAKE_CUDA_ARCHITECTURES ${GPU_ARCH})
 
     add_compile_options(
-        $<$<COMPILE_LANGUAGE:CUDA>:-Wno-deprecated-gpu-targets>
-        $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+        $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:-Wno-deprecated-gpu-targets>
+        $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:--expt-relaxed-constexpr>
     )
 elseif(${GPU_TARGET} STREQUAL "hip")
     enable_language(HIP)

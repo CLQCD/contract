@@ -13,4 +13,3 @@ add_library(baryon STATIC
     baryon_in_jl_mk.cu
 )
 set_property(TARGET baryon PROPERTY POSITION_INDEPENDENT_CODE ON)
-target_compile_options(baryon PRIVATE "-Wno-deprecated-gpu-targets" "--expt-relaxed-constexpr")
