@@ -7,11 +7,11 @@
 #include <contract_enum.h>
 #include <gamma.cuh>
 
-const int Ns = 4;
-const int Nc = 3;
-const int BLOCK_SIZE = 64;
-const int TILE_SIZE = Ns * Ns;
-const int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
+const unsigned int Ns = 4;
+const unsigned int Nc = 3;
+const unsigned int BLOCK_SIZE = 64;
+const unsigned int TILE_SIZE = Ns * Ns;
+const unsigned int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
@@ -169,27 +169,27 @@ namespace contract
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_j, x_offset, tile);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile_load_vector(tile, propag_i[gid], args.propag_j, x_offset);
+      // tile_load_vector(tile, propag_j[t_idx], args.propag_i, x_offset);
+      tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
                                                                             args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_j[gid], x_offset, tile);
+      tile_store_vector(tile, args.propag_i, propag_j[gid], x_offset);
     } else {
-      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      // tile_load_vector(tile, propag_i[t_idx], args.propag_i, x_offset);
+      tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
+      tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
                                                                             args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_i[gid], x_offset, tile);
+      tile_store_vector(tile, args.propag_i, propag_i[gid], x_offset);
     }
   }
 
@@ -206,27 +206,27 @@ namespace contract
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_i, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      // tile_load_vector(tile, propag_i[t_idx], args.propag_j, x_offset);
+      tile_load_vector(tile, propag_j[gid], args.propag_i, x_offset);
+      tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
                                                                             args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_i[gid], x_offset, tile);
+      tile_store_vector(tile, args.propag_j, propag_i[gid], x_offset);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+      // tile_load_vector(tile, propag_j[t_idx], args.propag_j, x_offset);
+      tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
                                                                             args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_j[gid], x_offset, tile);
+      tile_store_vector(tile, args.propag_j, propag_j[gid], x_offset);
     }
   }
 
@@ -243,13 +243,13 @@ namespace contract
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_j, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_i, x_offset, tile);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset, tile);
+      tile_load_vector(tile, propag_i[gid], args.propag_j, x_offset);
+      tile_load_vector(tile, propag_j[gid], args.propag_i, x_offset);
+      // tile_load_vector(tile, propag_n[t_idx], args.propag_n, x_offset);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset, tile);
+      tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+      tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
+      // tile_load_vector(tile, propag_n[t_idx], args.propag_n, x_offset);
     }
     tile.sync();
 
@@ -257,11 +257,11 @@ namespace contract
                                                                           args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
 
-    store_vector<Ns * Ns, Nc * Nc>(args.propag_n, propag_n[gid], x_offset, tile);
+    tile_store_vector(tile, args.propag_n, propag_n[gid], x_offset);
   }
 
-  template <typename Args> struct BaryonSequentialIKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr BaryonSequentialIKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct BaryonSequentialIKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonSequentialIKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {
@@ -269,8 +269,8 @@ namespace contract
     }
   };
 
-  template <typename Args> struct BaryonSequentialJKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr BaryonSequentialJKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct BaryonSequentialJKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonSequentialJKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {
@@ -278,8 +278,8 @@ namespace contract
     }
   };
 
-  template <typename Args> struct BaryonSequentialNKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr BaryonSequentialNKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct BaryonSequentialNKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonSequentialNKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {

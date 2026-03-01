@@ -5,16 +5,16 @@
 #include <contract_enum.h>
 #include <gamma.cuh>
 
-constexpr int Ns = 4;
-constexpr int Nc = 3;
-constexpr int BLOCK_SIZE = 64;
-constexpr int TILE_SIZE = Ns * Ns;
-constexpr int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
+const unsigned int Ns = 4;
+const unsigned int Nc = 3;
+const unsigned int BLOCK_SIZE = 64;
+const unsigned int TILE_SIZE = Ns * Ns;
+const unsigned int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
   template <int GAMMA_IJ_, typename F> struct DiquarkArgs {
-    using T = thrust::complex<F>;
+    using T = Complex<F>;
     static constexpr int GAMMA_IJ = GAMMA_IJ_;
 
     void *diquark;
@@ -66,18 +66,18 @@ namespace contract
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+    tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+    tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
     tile.sync();
 
     diquark_local<Args::GAMMA_IJ>(diquark[gid], propag_i[gid], propag_j[gid], args.gamma_kl, tid);
     tile.sync();
 
-    store_vector<Ns * Ns, Nc * Nc>(args.diquark, diquark[gid], x_offset, tile);
+    tile_store_vector(tile, args.diquark, diquark[gid], x_offset);
   }
 
-  template <typename Args> struct DiquarkKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr DiquarkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct DiquarkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr DiquarkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {

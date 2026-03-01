@@ -6,11 +6,11 @@
 #include <contract_enum.h>
 #include <gamma.cuh>
 
-constexpr int Ns = 4;
-constexpr int Nc = 3;
-constexpr int BLOCK_SIZE = 64;
-constexpr int TILE_SIZE = Ns * Ns;
-constexpr int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
+const unsigned int Ns = 4;
+const unsigned int Nc = 3;
+const unsigned int BLOCK_SIZE = 64;
+const unsigned int TILE_SIZE = Ns * Ns;
+const unsigned int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
@@ -97,19 +97,21 @@ namespace contract
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
+    __shared__ backend_warp_reduce_storage<typename Args::T, TILE_SIZE> storage[TILES_PER_BLOCK];
+
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_j, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_i, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile_load_vector(tile, propag_i[gid], args.propag_j, x_offset);
+      tile_load_vector(tile, propag_j[gid], args.propag_i, x_offset);
+      tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+      tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
+      tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
     }
     tile.sync();
 
@@ -117,12 +119,11 @@ namespace contract
                                          args.gamma_kl, args.project_mn, tid);
     tile.sync();
 
-    reduce_lane<Ns * Ns>(correl[gid], tile);
-    store_tile<Ns * Ns>(args.correl, correl[gid], x_offset, tile);
+    tile_reduce_store(tile, args.correl, correl[gid], storage[gid], x_offset);
   }
 
-  template <typename Args> struct BaryonGeneralKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr BaryonGeneralKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct BaryonGeneralKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonGeneralKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {

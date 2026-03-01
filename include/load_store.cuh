@@ -6,6 +6,99 @@
 namespace contract
 {
 
+  template <unsigned int TILE_SIZE, typename T>
+  __device__ __forceinline__ T tile_shfl_down(cg_tile<TILE_SIZE> tile, T var, unsigned int delta)
+  {
+    return tile.shfl_down(var, delta);
+  }
+
+  template <unsigned int TILE_SIZE, typename F>
+  __device__ __forceinline__ Complex<F> tile_shfl_down(cg_tile<TILE_SIZE> tile, Complex<F> var, unsigned int delta)
+  {
+    F r = tile.shfl_down(var.real(), delta);
+    F i = tile.shfl_down(var.imag(), delta);
+    return Complex<F>(r, i);
+  }
+
+  template <unsigned int TILE_SIZE, typename T>
+  __device__ __forceinline__ void tile_load_bcast(cg_tile<TILE_SIZE> tile, T dst[TILE_SIZE], void *src, size_t x_offset)
+  {
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+    const size_t offset = x_offset + gid;
+    const T *__restrict__ src_ptr = static_cast<const T *>(src);
+    if constexpr (TILE_SIZE == 1) {
+      dst[0] = src_ptr[offset];
+    } else {
+      T var;
+      if (tid == 0) { var = src_ptr[offset]; }
+      dst[tid] = tile.shfl(var, 0);
+    }
+  }
+
+  template <unsigned int TILE_SIZE, typename T, typename S>
+  __device__ __forceinline__ void tile_reduce_store(cg_tile<TILE_SIZE> tile, void *dst, T src[TILE_SIZE], S &storage,
+                                                    size_t x_offset)
+  {
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+    const size_t offset = x_offset + gid;
+    T *__restrict__ dst_ptr = static_cast<T *>(dst);
+#if defined(GPU_TARGET_CUDA)
+    T var = backend_warp_reduce<T, TILE_SIZE>(storage).Reduce(src[tid], cuda::std::plus<>());
+#elif defined(GPU_TARGET_HIP)
+    T var;
+    backend_warp_reduce<T, TILE_SIZE>().reduce(src[tid], var, storage, rocprim::plus<T>());
+#endif
+    if constexpr (TILE_SIZE == 1) {
+      dst_ptr[offset] = var;
+    } else {
+      if (tid == 0) { dst_ptr[offset] = var; }
+    }
+  }
+
+  template <unsigned int TILE_SIZE, typename T>
+  __device__ __forceinline__ void tile_load_scalar(cg_tile<TILE_SIZE> tile, T dst[TILE_SIZE], void *src, size_t x_offset)
+  {
+    const auto tid = tile.thread_rank();
+    const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
+    const T *__restrict__ src_ptr = static_cast<const T *>(src);
+    dst[tid] = src_ptr[offset];
+  }
+
+  template <unsigned int TILE_SIZE, typename T>
+  __device__ __forceinline__ void tile_store_scalar(cg_tile<TILE_SIZE> tile, void *dst, T src[TILE_SIZE], size_t x_offset)
+  {
+    const auto tid = tile.thread_rank();
+    const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
+    T *__restrict__ dst_ptr = static_cast<T *>(dst);
+    dst_ptr[offset] = src[tid];
+  }
+
+  template <unsigned int VECTOR_SIZE, unsigned int TILE_SIZE, typename T>
+  __device__ __forceinline__ void tile_load_vector(cg_tile<TILE_SIZE> tile, T dst[TILE_SIZE][VECTOR_SIZE], void *src,
+                                                   size_t x_offset)
+  {
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+    const size_t offset = (x_offset + gid) * TILE_SIZE * VECTOR_SIZE + tid;
+    const T *__restrict__ src_ptr = static_cast<const T *>(src);
+#pragma unroll
+    for (int v = 0; v < VECTOR_SIZE; ++v) { (&dst[0][0])[tid + v * TILE_SIZE] = src_ptr[offset + v * TILE_SIZE]; }
+  }
+
+  template <unsigned int VECTOR_SIZE, unsigned int TILE_SIZE, typename T>
+  __device__ __forceinline__ void tile_store_vector(cg_tile<TILE_SIZE> tile, void *dst, T src[TILE_SIZE][VECTOR_SIZE],
+                                                    size_t x_offset)
+  {
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+    const size_t offset = (x_offset + gid) * TILE_SIZE * VECTOR_SIZE + tid;
+    T *__restrict__ dst_ptr = static_cast<T *>(dst);
+#pragma unroll
+    for (int v = 0; v < VECTOR_SIZE; ++v) { dst_ptr[offset + v * TILE_SIZE] = (&src[0][0])[tid + v * TILE_SIZE]; }
+  }
+
   template <int TILE_SIZE, typename T>
   __device__ __forceinline__ T tile_shfl_down(T var, unsigned int delta, cg_tile<TILE_SIZE> tile)
   {

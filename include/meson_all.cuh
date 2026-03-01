@@ -56,25 +56,26 @@ namespace contract
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
+    __shared__ backend_warp_reduce_storage<typename Args::T, TILE_SIZE> storage[TILES_PER_BLOCK];
+
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+    tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+    tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
     tile.sync();
 
     for (int gamma_kl = 0; gamma_kl < Ns * Ns; ++gamma_kl) {
       meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma, gamma_kl, tid);
       tile.sync();
 
-      reduce_lane<Ns * Ns>(correl[gid], tile);
-      store_tile<Ns * Ns>(args.correl[gamma_kl], correl[gid], x_offset, tile);
+      tile_reduce_store(tile, args.correl[gamma_kl], correl[gid], storage[gid], x_offset);
       tile.sync();
     }
   }
 
-  template <typename Args> struct MesonAllSourceKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr MesonAllSourceKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct MesonAllSourceKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr MesonAllSourceKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {
@@ -89,25 +90,26 @@ namespace contract
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
+    __shared__ backend_warp_reduce_storage<typename Args::T, TILE_SIZE> storage[TILES_PER_BLOCK];
+
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+    tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+    tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
     tile.sync();
 
     for (int gamma_ij = 0; gamma_ij < Ns * Ns; ++gamma_ij) {
       meson_local(correl[gid], propag_i[gid], propag_j[gid], gamma_ij, args.gamma, tid);
       tile.sync();
 
-      reduce_lane<Ns * Ns>(correl[gid], tile);
-      store_tile<Ns * Ns>(args.correl[gamma_ij], correl[gid], x_offset, tile);
+      tile_reduce_store(tile, args.correl[gamma_ij], correl[gid], storage[gid], x_offset);
       tile.sync();
     }
   }
 
-  template <typename Args> struct MesonAllSinkKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
-    constexpr MesonAllSinkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
+  template <typename Args> struct MesonAllSinkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr MesonAllSinkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
     {

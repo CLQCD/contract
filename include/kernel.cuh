@@ -1,21 +1,31 @@
 #pragma once
 
+#include <type_traits>
+
 #include <runtime_api.h>
 
 #if defined(GPU_TARGET_CUDA)
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
+#include <cub/cub.cuh>
 #elif defined(GPU_TARGET_HIP)
 #include <hip/hip_runtime.h>
 #include <hip/hip_cooperative_groups.h>
+#include <rocprim/rocprim.hpp>
 #endif
 
 namespace cg = cooperative_groups;
 using cg_block = cg::thread_block;
 #if defined(GPU_TARGET_CUDA)
-template <unsigned int Size> using cg_tile = cg::thread_block_tile<Size, cg_block>;
+template <unsigned int TILE_SIZE> using cg_tile = cg::thread_block_tile<TILE_SIZE, cg_block>;
+template <typename T, unsigned int TILE_SIZE> using backend_warp_reduce = cub::WarpReduce<T, TILE_SIZE>;
+template <typename T, unsigned int TILE_SIZE>
+using backend_warp_reduce_storage = typename cub::WarpReduce<T, TILE_SIZE>::TempStorage;
 #elif defined(GPU_TARGET_HIP)
-template <unsigned int Size> using cg_tile = cg::thread_block_tile<Size>;
+template <unsigned int TILE_SIZE> using cg_tile = cg::thread_block_tile<TILE_SIZE>;
+template <typename T, unsigned int TILE_SIZE> using backend_warp_reduce = rocprim::warp_reduce<T, TILE_SIZE>;
+template <typename T, unsigned int TILE_SIZE>
+using backend_warp_reduce_storage = typename rocprim::warp_reduce<T, TILE_SIZE>::storage_type;
 #endif
 
 #define for_abc_def                                                                                                    \
@@ -45,25 +55,35 @@ namespace contract
 
   template <typename Args> constexpr Args &get_args() { return reinterpret_cast<Args &>(buffer); }
 
-  template <typename Args, int BLOCK_SIZE_, int LANE_SIZE_> struct BaseKernel {
+  template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
     const Args &args;
-    static constexpr int BLOCK_SIZE = BLOCK_SIZE_;
-    static constexpr int TILE_SIZE = LANE_SIZE_;
-    static constexpr int TILES_PER_BLOCK = BLOCK_SIZE_ / LANE_SIZE_;
+    static constexpr unsigned int BLOCK_SIZE = BLOCK_SIZE_;
+    static constexpr unsigned int TILE_SIZE = TILE_SIZE_;
+    static constexpr unsigned int TILES_PER_BLOCK = BLOCK_SIZE_ / TILE_SIZE_;
 
     constexpr BaseKernel(const Args &args) : args(args) { }
+  };
 
-    virtual __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<LANE_SIZE_> tile) = 0;
+  template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_>
+  struct TileKernel : public BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_> {
+
+    constexpr TileKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_>(args) { }
+
+    virtual __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE_> tile) = 0;
   };
 
   template <typename Kernel, typename Args> __global__ void kernel()
   {
+    const size_t x_offset = blockIdx.x * Kernel::TILES_PER_BLOCK;
     Kernel functor(get_args<Args>());
 
-    const size_t x_offset = blockIdx.x * Kernel::TILES_PER_BLOCK;
-    cg_block block = cg::this_thread_block();
-    cg_tile<Kernel::TILE_SIZE> tile = cg::tiled_partition<Kernel::TILE_SIZE>(block);
-    functor(x_offset, tile);
+    if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
+      cg_block block = cg::this_thread_block();
+      cg_tile<Kernel::TILE_SIZE> tile = cg::tiled_partition<Kernel::TILE_SIZE>(block);
+      functor(x_offset, tile);
+    } else {
+      functor(x_offset);
+    }
   }
 
   template <typename Kernel, typename Args> void launch_kernel(Args &args, size_t volume)
