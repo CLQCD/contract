@@ -8,8 +8,8 @@ namespace baryon_general
   void launch(void *correl, void *propag_i, void *propag_j, void *propag_n, size_t volume, int gamma_ij, int gamma_kl,
               std::complex<double> *project_mn)
   {
-    if (volume % TILE_SIZE != 0) {
-      fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
+    if (volume % TILES_PER_BLOCK != 0) {
+      fprintf(stderr, "Error: Volume must be a multiple of TILES_PER_BLOCK\n");
       exit(-1);
     }
 

@@ -1,11 +1,17 @@
 #pragma once
 
 #include <runtime_api.h>
-#include <load_store.cuh>
 
-#ifdef GPU_TARGET_HIP
-#define __syncwarp() __builtin_amdgcn_wave_barrier()
+#if defined(GPU_TARGET_CUDA)
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
+#elif defined(GPU_TARGET_HIP)
+#include <hip/hip_cooperative_groups.h>
 #endif
+
+namespace cg = cooperative_groups;
+using cg_block = cg::thread_block;
+template <unsigned int Size> using cg_tile = cg::thread_block_tile<Size, cg_block>;
 
 #define for_abc_def                                                                                                    \
   for (int a = 0; a < 3; ++a)                                                                                          \
@@ -37,25 +43,27 @@ namespace contract
   template <typename Args, int BLOCK_SIZE_, int LANE_SIZE_> struct BaseKernel {
     const Args &args;
     static constexpr int BLOCK_SIZE = BLOCK_SIZE_;
-    static constexpr int LANE_SIZE = LANE_SIZE_;
-    static constexpr int TILE_SIZE = BLOCK_SIZE_ / LANE_SIZE_;
+    static constexpr int TILE_SIZE = LANE_SIZE_;
+    static constexpr int TILES_PER_BLOCK = BLOCK_SIZE_ / LANE_SIZE_;
 
     constexpr BaseKernel(const Args &args) : args(args) { }
 
-    virtual __device__ __forceinline__ void operator()(size_t x_offset) = 0;
+    virtual __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<LANE_SIZE_> tile) = 0;
   };
 
   template <typename Kernel, typename Args> __global__ void kernel()
   {
     Kernel functor(get_args<Args>());
 
-    const size_t x_offset = blockIdx.x * Kernel::TILE_SIZE;
-    functor(x_offset);
+    const size_t x_offset = blockIdx.x * Kernel::TILES_PER_BLOCK;
+    cg_block block = cg::this_thread_block();
+    cg_tile<Kernel::TILE_SIZE> tile = cg::tiled_partition<Kernel::TILE_SIZE>(block);
+    functor(x_offset, tile);
   }
 
   template <typename Kernel, typename Args> void launch_kernel(Args &args, size_t volume)
   {
-    unsigned int grid = (volume * Kernel::LANE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
+    unsigned int grid = (volume * Kernel::TILE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
     unsigned int block = Kernel::BLOCK_SIZE;
 
     static_assert(sizeof(Args) <= constant_buffer_size(), "Parameter struct is greater than max constant buffer size");

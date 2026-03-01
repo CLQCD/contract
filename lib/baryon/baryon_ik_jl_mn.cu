@@ -4,8 +4,8 @@
 void baryon_ik_jl_mn(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,
                      int gamma_kl, int gamma_mn)
 {
-  if (volume % TILE_SIZE != 0) {
-    fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
+  if (volume % TILES_PER_BLOCK != 0) {
+    fprintf(stderr, "Error: Volume must be a multiple of TILES_PER_BLOCK\n");
     exit(-1);
   }
 

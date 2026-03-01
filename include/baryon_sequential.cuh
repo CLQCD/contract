@@ -3,14 +3,15 @@
 #include <atomic>
 
 #include <kernel.cuh>
+#include <load_store.cuh>
 #include <contract_enum.h>
 #include <gamma.cuh>
 
 const int Ns = 4;
 const int Nc = 3;
 const int BLOCK_SIZE = 64;
-const int LANE_SIZE = Ns * Ns;
-const int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
+const int TILE_SIZE = Ns * Ns;
+const int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
@@ -37,6 +38,9 @@ namespace contract
   baryon_sequential_local(Complex<F> propag_i[Ns * Ns][Nc * Nc], Complex<F> propag_j[Ns * Ns][Nc * Nc],
                           Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl, int idx)
   {
+    cg_block block = cg::this_thread_block();
+    cg_tile<TILE_SIZE> tile = cg::tiled_partition<TILE_SIZE>(block);
+
     using T = Complex<F>;
     constexpr bool SWAP_IJ = (CONTRACT == IM_JK_NL || CONTRACT == IM_JL_NK);
     constexpr bool SWAP_KL = (CONTRACT == IL_JK_NM || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK);
@@ -82,18 +86,18 @@ namespace contract
           tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jl]);
           propag_n[idx][ad] = gamma_ij_data * gamma_kl_data * tmp_color;
         }
-        __syncwarp();
+        tile.sync();
 #pragma unroll
-        for (int stride = LANE_SIZE / 2; stride > 0; stride /= 2) {
+        for (int stride = TILE_SIZE / 2; stride > 0; stride /= 2) {
           if (idx < stride) {
             for_a_d { propag_n[idx][ad] += propag_n[idx + stride][ad]; }
           }
-          __syncwarp();
+          tile.sync();
         }
         if (idx > 0) {
           for_a_d { propag_n[idx][ad] = propag_n[0][ad]; }
         }
-        __syncwarp();
+        tile.sync();
         int nm = idx;
         int n = nm / Ns;
         int m = nm % Ns;
@@ -116,7 +120,7 @@ namespace contract
         }
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_J) {
         for_a_d { propag_j[idx][ad] = 0; }
-        __syncwarp();
+        tile.sync();
         for_abc_def
         {
           T tmp = 0, tmp_color;
@@ -133,7 +137,7 @@ namespace contract
         }
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_N) {
         for_a_d { propag_n[idx][ad] = 0; }
-        __syncwarp();
+        tile.sync();
         for_abc_def
         {
           T tmp = 0, tmp_color;
@@ -152,122 +156,135 @@ namespace contract
     }
   }
 
-  template <typename Args> __device__ void baryon_sequential_i_kernel(const Args &args, size_t x_offset)
+  template <typename Args>
+  __device__ void baryon_sequential_i_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
-      __syncwarp();
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_j, x_offset, tile);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
-        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
-      __syncwarp();
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
+                                                                            args.gamma_ij, args.gamma_kl, tid);
+      tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_j[t_idx], x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_j[gid], x_offset, tile);
     } else {
-      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
-      __syncwarp();
+      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile.sync();
 
-      int t_idx = threadIdx.x / LANE_SIZE;
-      int l_idx = threadIdx.x % LANE_SIZE;
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
-        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
-      __syncwarp();
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
+                                                                            args.gamma_ij, args.gamma_kl, tid);
+      tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_i[t_idx], x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_i, propag_i[gid], x_offset, tile);
     }
   }
 
-  template <typename Args> __device__ void baryon_sequential_j_kernel(const Args &args, size_t x_offset)
+  template <typename Args>
+  __device__ void baryon_sequential_j_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
-      __syncwarp();
+      // load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_i, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
-        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
-      __syncwarp();
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
+                                                                            args.gamma_ij, args.gamma_kl, tid);
+      tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_i[t_idx], x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_i[gid], x_offset, tile);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
-      __syncwarp();
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
+      tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
-        propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
-      __syncwarp();
+      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
+                                                                            args.gamma_ij, args.gamma_kl, tid);
+      tile.sync();
 
-      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_j[t_idx], x_offset);
+      store_vector<Ns * Ns, Nc * Nc>(args.propag_j, propag_j[gid], x_offset, tile);
     }
   }
 
-  template <typename Args> __device__ void baryon_sequential_n_kernel(const Args &args, size_t x_offset)
+  template <typename Args>
+  __device__ void baryon_sequential_n_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_j, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_i, x_offset, tile);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset, tile);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+      // load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset, tile);
     }
-    __syncwarp();
+    tile.sync();
 
-    baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(
-      propag_i[t_idx], propag_j[t_idx], propag_n[t_idx], args.gamma_ij, args.gamma_kl, l_idx);
-    __syncwarp();
+    baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
+                                                                          args.gamma_ij, args.gamma_kl, tid);
+    tile.sync();
 
-    store_vector<Ns * Ns, Nc * Nc>(args.propag_n, propag_n[t_idx], x_offset);
+    store_vector<Ns * Ns, Nc * Nc>(args.propag_n, propag_n[gid], x_offset, tile);
   }
 
-  template <typename Args> struct BaryonSequentialIKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr BaryonSequentialIKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct BaryonSequentialIKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonSequentialIKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_sequential_i_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      baryon_sequential_i_kernel(this->args, x_offset, tile);
+    }
   };
 
-  template <typename Args> struct BaryonSequentialJKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr BaryonSequentialJKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct BaryonSequentialJKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonSequentialJKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_sequential_j_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      baryon_sequential_j_kernel(this->args, x_offset, tile);
+    }
   };
 
-  template <typename Args> struct BaryonSequentialNKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr BaryonSequentialNKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct BaryonSequentialNKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonSequentialNKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_sequential_n_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      baryon_sequential_n_kernel(this->args, x_offset, tile);
+    }
   };
 
 }; // namespace contract

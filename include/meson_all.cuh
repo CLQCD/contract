@@ -1,14 +1,15 @@
 #pragma once
 
 #include <kernel.cuh>
+#include <load_store.cuh>
 #include <contract_enum.h>
 #include <gamma.cuh>
 
 const unsigned int Ns = 4;
 const unsigned int Nc = 3;
 const unsigned int BLOCK_SIZE = 64;
-const unsigned int LANE_SIZE = Ns * Ns;
-const unsigned int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
+const unsigned int TILE_SIZE = Ns * Ns;
+const unsigned int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
@@ -48,61 +49,70 @@ namespace contract
     correl[idx] = gamma_ij_data * gamma_kl_data * tmp;
   }
 
-  template <typename Args> __device__ void meson_all_source_kernel(const Args &args, size_t x_offset)
+  template <typename Args>
+  __device__ void meson_all_source_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-    __syncthreads();
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+    tile.sync();
+
     for (int gamma_kl = 0; gamma_kl < Ns * Ns; ++gamma_kl) {
-      meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma, gamma_kl, l_idx);
-      __syncwarp();
+      meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma, gamma_kl, tid);
+      tile.sync();
 
-      reduce_lane<Ns * Ns>(correl[t_idx]);
-      store_tile<Ns * Ns>(args.correl[gamma_kl], correl[t_idx], x_offset);
-      __syncwarp();
+      reduce_lane<Ns * Ns>(correl[gid], tile);
+      store_tile<Ns * Ns>(args.correl[gamma_kl], correl[gid], x_offset, tile);
+      tile.sync();
     }
   }
 
-  template <typename Args> struct MesonAllSourceKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr MesonAllSourceKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct MesonAllSourceKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr MesonAllSourceKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { meson_all_source_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      meson_all_source_kernel(this->args, x_offset, tile);
+    }
   };
 
-  template <typename Args> __device__ void meson_all_sink_kernel(const Args &args, size_t x_offset)
+  template <typename Args>
+  __device__ void meson_all_sink_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-    __syncwarp();
+    load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+    tile.sync();
 
     for (int gamma_ij = 0; gamma_ij < Ns * Ns; ++gamma_ij) {
-      meson_local(correl[t_idx], propag_i[t_idx], propag_j[t_idx], gamma_ij, args.gamma, l_idx);
-      __syncwarp();
+      meson_local(correl[gid], propag_i[gid], propag_j[gid], gamma_ij, args.gamma, tid);
+      tile.sync();
 
-      reduce_lane<Ns * Ns>(correl[t_idx]);
-      store_tile<Ns * Ns>(args.correl[gamma_ij], correl[t_idx], x_offset);
-      __syncwarp();
+      reduce_lane<Ns * Ns>(correl[gid], tile);
+      store_tile<Ns * Ns>(args.correl[gamma_ij], correl[gid], x_offset, tile);
+      tile.sync();
     }
   }
 
-  template <typename Args> struct MesonAllSinkKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr MesonAllSinkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct MesonAllSinkKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr MesonAllSinkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { meson_all_sink_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      meson_all_sink_kernel(this->args, x_offset, tile);
+    }
   };
 
 } // namespace contract

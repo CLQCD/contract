@@ -6,7 +6,7 @@
 const int Ns = 4;
 const int Nc = 3;
 const int BLOCK_SIZE = 64;
-const int TILE_SIZE = BLOCK_SIZE / (Ns * Ns);
+const int TILES_PER_BLOCK = BLOCK_SIZE / (Ns * Ns);
 
 struct Arguments {
   void *correl;
@@ -21,22 +21,22 @@ __constant__ Arguments args {};
 
 template <BaryonContractType CONTRACT, int GAMMA_MN> __global__ void baryon_kernel()
 {
-  const size_t x_block = blockIdx.x * TILE_SIZE;
+  const size_t x_block = blockIdx.x * TILES_PER_BLOCK;
   const int thread_id = threadIdx.x;
   const int idx0 = threadIdx.x / (Ns * Ns);
   const int idx1 = threadIdx.x % (Ns * Ns);
 
-  __shared__ Complex128 propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
-  __shared__ Complex128 correl[TILE_SIZE][Ns * Ns];
+  __shared__ Complex128 propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+  __shared__ Complex128 propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+  __shared__ Complex128 propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+  __shared__ Complex128 correl[TILES_PER_BLOCK][Ns * Ns];
   correl[idx0][idx1] = 0;
 
   constexpr bool SWAP_IJ = (CONTRACT == IM_JK_NL || CONTRACT == IM_JL_NK);
   constexpr bool SWAP_KL = (CONTRACT == IL_JK_NM || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK);
 
   size_t offset = x_block * (Ns * Ns * Nc * Nc);
-  for (int pos = thread_id; pos < TILE_SIZE * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
+  for (int pos = thread_id; pos < TILES_PER_BLOCK * (Ns * Ns * Nc * Nc); pos += BLOCK_SIZE) {
     int x = pos / (Ns * Ns * Nc * Nc);
     int ij = pos / (Nc * Nc) % (Ns * Ns);
     int ab = pos % (Nc * Nc);

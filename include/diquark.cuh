@@ -1,14 +1,15 @@
 #pragma once
 
 #include <kernel.cuh>
+#include <load_store.cuh>
 #include <contract_enum.h>
 #include <gamma.cuh>
 
 constexpr int Ns = 4;
 constexpr int Nc = 3;
 constexpr int BLOCK_SIZE = 64;
-constexpr int LANE_SIZE = Ns * Ns;
-constexpr int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
+constexpr int TILE_SIZE = Ns * Ns;
+constexpr int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
@@ -56,29 +57,32 @@ namespace contract
     }
   }
 
-  template <typename Args> __device__ void diquark_kernel(const Args &args, size_t x_offset)
+  template <typename Args> __device__ void diquark_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T diquark[TILE_SIZE][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T diquark[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-    __syncwarp();
+    load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
+    load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+    tile.sync();
 
-    diquark_local<Args::GAMMA_IJ>(diquark[t_idx], propag_i[t_idx], propag_j[t_idx], args.gamma_kl, l_idx);
-    __syncwarp();
+    diquark_local<Args::GAMMA_IJ>(diquark[gid], propag_i[gid], propag_j[gid], args.gamma_kl, tid);
+    tile.sync();
 
-    store_vector<Ns * Ns, Nc * Nc>(args.diquark, diquark[t_idx], x_offset);
+    store_vector<Ns * Ns, Nc * Nc>(args.diquark, diquark[gid], x_offset, tile);
   }
 
-  template <typename Args> struct DiquarkKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr DiquarkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct DiquarkKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr DiquarkKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { diquark_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      diquark_kernel(this->args, x_offset, tile);
+    }
   };
 
 }; // namespace contract

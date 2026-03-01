@@ -2,14 +2,15 @@
 
 #include <complex>
 #include <kernel.cuh>
+#include <load_store.cuh>
 #include <contract_enum.h>
 #include <gamma.cuh>
 
 constexpr int Ns = 4;
 constexpr int Nc = 3;
 constexpr int BLOCK_SIZE = 64;
-constexpr int LANE_SIZE = Ns * Ns;
-constexpr int TILE_SIZE = BLOCK_SIZE / LANE_SIZE;
+constexpr int TILE_SIZE = Ns * Ns;
+constexpr int TILES_PER_BLOCK = BLOCK_SIZE / TILE_SIZE;
 
 namespace contract
 {
@@ -88,40 +89,45 @@ namespace contract
     }
   }
 
-  template <typename Args> __device__ void baryon_general_kernel(const Args &args, size_t x_offset)
+  template <typename Args>
+  __device__ void baryon_general_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
   {
-    __shared__ typename Args::T propag_i[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_n[TILE_SIZE][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T correl[TILE_SIZE][Ns * Ns];
+    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+    __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    int t_idx = threadIdx.x / LANE_SIZE;
-    int l_idx = threadIdx.x % LANE_SIZE;
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+
     constexpr bool SWAP_IJ = (Args::CONTRACT == IM_JK_NL || Args::CONTRACT == IM_JL_NK);
 
     if constexpr (SWAP_IJ) {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_j, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_i, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
     } else {
-      load_vector<Ns * Ns, Nc * Nc>(propag_i[t_idx], args.propag_i, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_j[t_idx], args.propag_j, x_offset);
-      load_vector<Ns * Ns, Nc * Nc>(propag_n[t_idx], args.propag_n, x_offset);
+      load_vector<Ns * Ns, Nc * Nc>(propag_i[gid], args.propag_i, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_j[gid], args.propag_j, x_offset, tile);
+      load_vector<Ns * Ns, Nc * Nc>(propag_n[gid], args.propag_n, x_offset, tile);
     }
-    __syncwarp();
+    tile.sync();
 
-    baryon_general_local<Args::CONTRACT>(correl[t_idx], propag_i[t_idx], propag_j[t_idx], propag_n[t_idx],
-                                         args.gamma_ij, args.gamma_kl, args.project_mn, l_idx);
-    __syncwarp();
+    baryon_general_local<Args::CONTRACT>(correl[gid], propag_i[gid], propag_j[gid], propag_n[gid], args.gamma_ij,
+                                         args.gamma_kl, args.project_mn, tid);
+    tile.sync();
 
-    reduce_lane<Ns * Ns>(correl[t_idx]);
-    store_tile<Ns * Ns>(args.correl, correl[t_idx], x_offset);
+    reduce_lane<Ns * Ns>(correl[gid], tile);
+    store_tile<Ns * Ns>(args.correl, correl[gid], x_offset, tile);
   }
 
-  template <typename Args> struct BaryonGeneralKernel : public BaseKernel<Args, BLOCK_SIZE, LANE_SIZE> {
-    constexpr BaryonGeneralKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, LANE_SIZE>(args) { }
+  template <typename Args> struct BaryonGeneralKernel : public BaseKernel<Args, BLOCK_SIZE, TILE_SIZE> {
+    constexpr BaryonGeneralKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset) { baryon_general_kernel(this->args, x_offset); }
+    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    {
+      baryon_general_kernel(this->args, x_offset, tile);
+    }
   };
 
 }; // namespace contract

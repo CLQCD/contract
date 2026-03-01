@@ -5,8 +5,8 @@ namespace meson_all_source
 {
   void launch(void *correl[Ns * Ns], void *propag_i, void *propag_j, size_t volume, int gamma_ij)
   {
-    if (volume % TILE_SIZE != 0) {
-      fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
+    if (volume % TILES_PER_BLOCK != 0) {
+      fprintf(stderr, "Error: Volume must be a multiple of TILES_PER_BLOCK\n");
       exit(-1);
     }
 
@@ -26,8 +26,8 @@ namespace meson_all_sink
 {
   void launch(void *correl[Ns * Ns], void *propag_i, void *propag_j, size_t volume, int gamma_kl)
   {
-    if (volume % TILE_SIZE != 0) {
-      fprintf(stderr, "Error: Volume must be a multiple of TILE_SIZE\n");
+    if (volume % TILES_PER_BLOCK != 0) {
+      fprintf(stderr, "Error: Volume must be a multiple of TILES_PER_BLOCK\n");
       exit(-1);
     }
 
