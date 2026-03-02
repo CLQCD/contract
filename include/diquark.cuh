@@ -59,9 +59,21 @@ namespace contract
 
   template <typename Args> __device__ void diquark_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
+#if defined(GPU_TARGET_SYCL)
+    auto &propag_i
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_j
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &diquark
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+#else
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T diquark[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+#endif
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -79,7 +91,11 @@ namespace contract
   template <typename Args> struct DiquarkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr DiquarkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
+#if defined(GPU_TARGET_SYCL)
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
+#else
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+#endif
     {
       diquark_kernel(this->args, x_offset, tile);
     }

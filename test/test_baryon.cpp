@@ -1,6 +1,7 @@
 #include <runtime_api.h>
 #include <contract.h>
 
+#ifndef GPU_TARGET_SYCL
 void proton_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
                size_t volume, int gamma_ij, int gamma_kl, int gamma_mn)
 {
@@ -22,6 +23,7 @@ void proton_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, Bar
 
   return;
 }
+#endif
 
 void proton(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
             size_t volume, int gamma_ij, int gamma_kl, int gamma_mn)
@@ -91,12 +93,14 @@ int main(int argc, char *argv[])
   proton_general(correl, propag_i, propag_j, propag_m, IL_JN_MK, volume, 5, 5, project_mn);
   proton_general(correl, propag_i, propag_j, propag_m, IN_JK_ML, volume, 5, 5, project_mn);
   proton_general(correl, propag_i, propag_j, propag_m, IN_JL_MK, volume, 5, 5, project_mn);
+#ifndef GPU_TARGET_SYCL
   proton_v2(correl, propag_i, propag_j, propag_m, IK_JL_MN, volume, 5, 5, 0);
   proton_v2(correl, propag_i, propag_j, propag_m, IK_JN_ML, volume, 5, 5, 0);
   proton_v2(correl, propag_i, propag_j, propag_m, IL_JK_MN, volume, 5, 5, 0);
   proton_v2(correl, propag_i, propag_j, propag_m, IL_JN_MK, volume, 5, 5, 0);
   proton_v2(correl, propag_i, propag_j, propag_m, IN_JK_ML, volume, 5, 5, 0);
   proton_v2(correl, propag_i, propag_j, propag_m, IN_JL_MK, volume, 5, 5, 0);
+#endif
   target_free(correl);
   target_free(propag_i);
   target_free(propag_j);

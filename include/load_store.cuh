@@ -43,7 +43,11 @@ namespace contract
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset + gid;
     T *__restrict__ dst_ptr = static_cast<T *>(dst);
+#if defined(GPU_TARGET_SYCL)
+    T var = Reduce::plus(gid, src[tid], tile.sg);
+#else
     T var = Reduce::plus(gid, src[tid]);
+#endif
     if constexpr (TILE_SIZE == 1) {
       dst_ptr[offset] = var;
     } else {
@@ -55,7 +59,11 @@ namespace contract
   __device__ __forceinline__ void tile_load_scalar(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
+#if defined(GPU_TARGET_SYCL)
+    const size_t offset = x_offset * TILE_SIZE + tile.item.get_local_id(0);
+#else
     const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
+#endif
     const T *__restrict__ src_ptr = static_cast<const T *>(src);
     dst[tid] = src_ptr[offset];
   }
@@ -64,7 +72,11 @@ namespace contract
   __device__ __forceinline__ void tile_store_scalar(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
+#if defined(GPU_TARGET_SYCL)
+    const size_t offset = x_offset * TILE_SIZE + tile.item.get_local_id(0);
+#else
     const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
+#endif
     T *__restrict__ dst_ptr = static_cast<T *>(dst);
     dst_ptr[offset] = src[tid];
   }
@@ -92,6 +104,8 @@ namespace contract
 #pragma unroll
     for (int v = 0; v < VECTOR_SIZE; ++v) { dst_ptr[offset + v * TILE_SIZE] = (&src[0][0])[tid + v * TILE_SIZE]; }
   }
+
+#if !defined(GPU_TARGET_SYCL)
 
   template <typename F> __device__ __forceinline__ F warp_shfl_down(F var, unsigned int delta)
   {
@@ -306,5 +320,39 @@ namespace contract
       dst_ptr[offset + v * blockDim.x] = (&src[0][0][0])[threadIdx.x + v * blockDim.x];
     }
   }
+
+#else // GPU_TARGET_SYCL
+
+  // SYCL versions of non-tile load/store that use nd_item instead of threadIdx.x / blockDim.x
+
+  template <int TILE_SIZE, int VECTOR_SIZE, typename T>
+  inline __attribute__((always_inline)) void load_vector(T (*dst)[TILE_SIZE][VECTOR_SIZE], void *src, size_t x_offset,
+                                                         sycl::nd_item<1> item)
+  {
+    const size_t local_id = item.get_local_id(0);
+    const size_t local_range = item.get_local_range(0);
+    const size_t offset = x_offset * TILE_SIZE * VECTOR_SIZE + local_id;
+    const T *__restrict__ src_ptr = static_cast<const T *>(src);
+#pragma unroll
+    for (int v = 0; v < VECTOR_SIZE; v++) {
+      (&dst[0][0][0])[local_id + v * local_range] = src_ptr[offset + v * local_range];
+    }
+  }
+
+  template <int TILE_SIZE, int VECTOR_SIZE, typename T>
+  inline __attribute__((always_inline)) void store_vector(void *dst, T (*src)[TILE_SIZE][VECTOR_SIZE], size_t x_offset,
+                                                          sycl::nd_item<1> item)
+  {
+    const size_t local_id = item.get_local_id(0);
+    const size_t local_range = item.get_local_range(0);
+    const size_t offset = x_offset * TILE_SIZE * VECTOR_SIZE + local_id;
+    T *__restrict__ dst_ptr = static_cast<T *>(dst);
+#pragma unroll
+    for (int v = 0; v < VECTOR_SIZE; v++) {
+      dst_ptr[offset + v * local_range] = (&src[0][0][0])[local_id + v * local_range];
+    }
+  }
+
+#endif // !GPU_TARGET_SYCL
 
 }; // namespace contract

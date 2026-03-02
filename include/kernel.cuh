@@ -12,9 +12,13 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_cooperative_groups.h>
 #include <rocprim/rocprim.hpp>
+#elif defined(GPU_TARGET_SYCL)
+#include <sycl/sycl.hpp>
 #endif
 
+#if !defined(GPU_TARGET_SYCL)
 namespace cg = cooperative_groups;
+#endif
 
 #define for_abc_def                                                                                                    \
   for (int a = 0; a < 3; ++a)                                                                                          \
@@ -28,14 +32,122 @@ namespace cg = cooperative_groups;
       for (int ad = a * 3 + d, _once = 1; _once; _once = 0)
 
 #define epsilon_abc_def(_in_1, _in_2)                                                                                  \
-  ({                                                                                                                   \
+  [&]() {                                                                                                              \
     auto _v1 = _in_1[b * 3 + e] * _in_2[c * 3 + f] + _in_1[c * 3 + f] * _in_2[b * 3 + e];                              \
     auto _v2 = _in_1[c * 3 + e] * _in_2[b * 3 + f] + _in_1[b * 3 + f] * _in_2[c * 3 + e];                              \
-    _v1 - _v2;                                                                                                         \
-  })
+    return _v1 - _v2;                                                                                                  \
+  }()
 
 namespace contract
 {
+
+#if defined(GPU_TARGET_SYCL)
+
+  // ============ SYCL ThreadTile wrapper ============
+  template <unsigned int TILE_SIZE> struct ThreadTile {
+    sycl::sub_group sg;
+    sycl::nd_item<1> item;
+
+    ThreadTile(sycl::sub_group sg_, sycl::nd_item<1> item_) : sg(sg_), item(item_) { }
+
+    unsigned int thread_rank() const { return sg.get_local_id()[0]; }
+    unsigned int meta_group_rank() const { return sg.get_group_id()[0]; }
+
+    template <typename T> T shfl(T val, unsigned int src) const { return sycl::select_from_group(sg, val, src); }
+
+    template <typename T> T shfl_down(T val, unsigned int delta) const
+    {
+      return sycl::shift_group_left(sg, val, delta);
+    }
+
+    void sync() const { sycl::group_barrier(sg); }
+  };
+
+  using ThreadBlock = sycl::group<1>;
+
+  // ============ SYCL WarpReduce via sub_group shuffle ============
+  template <typename T, unsigned int BLOCK_SIZE, unsigned int TILE_SIZE> struct WarpReduce {
+    WarpReduce() = default;
+
+    static T plus(const unsigned int gid, T input, sycl::sub_group sg)
+    {
+      for (unsigned int stride = TILE_SIZE / 2; stride > 0; stride /= 2) {
+        T other;
+        if constexpr (std::is_arithmetic_v<T>) {
+          other = sycl::shift_group_left(sg, input, stride);
+        } else if constexpr (sizeof(T) % sizeof(double) == 0) {
+          constexpr int N = sizeof(T) / sizeof(double);
+          double *src = reinterpret_cast<double *>(&input);
+          double *dst = reinterpret_cast<double *>(&other);
+          for (int i = 0; i < N; ++i) dst[i] = sycl::shift_group_left(sg, src[i], stride);
+        } else {
+          constexpr int N = sizeof(T) / sizeof(float);
+          static_assert(sizeof(T) % sizeof(float) == 0);
+          float *src = reinterpret_cast<float *>(&input);
+          float *dst = reinterpret_cast<float *>(&other);
+          for (int i = 0; i < N; ++i) dst[i] = sycl::shift_group_left(sg, src[i], stride);
+        }
+        input += other;
+      }
+      return input;
+    }
+
+    // Overload that matches calling convention from tile_reduce_store
+    static T plus(const unsigned int gid, T input) { return input; /* fallback, should not be used */ }
+  };
+
+  constexpr size_t constant_buffer_size() { return 32764; };
+
+  template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
+    const Args &args;
+    static constexpr unsigned int BLOCK_SIZE = BLOCK_SIZE_;
+    static constexpr unsigned int TILE_SIZE = TILE_SIZE_;
+    static constexpr unsigned int TILES_PER_BLOCK = BLOCK_SIZE_ / TILE_SIZE_;
+
+    constexpr BaseKernel(const Args &args) : args(args) { }
+  };
+
+  template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_>
+  struct TileKernel : public BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_> {
+    constexpr TileKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_>(args) { }
+
+    // Non-virtual in SYCL — dispatched statically via templates
+    void operator()(size_t x_offset, ThreadTile<TILE_SIZE_> tile) { }
+  };
+
+  template <typename Kernel, typename Args> void launch_kernel(Args &args, size_t volume)
+  {
+    unsigned int grid = (volume * Kernel::TILE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
+    unsigned int block = Kernel::BLOCK_SIZE;
+    unsigned int total = grid * block;
+
+    auto &queue = get_sycl_queue();
+
+    // Copy args to USM device memory
+    Args *dev_args = sycl::malloc_device<Args>(1, queue);
+    queue.memcpy(dev_args, &args, sizeof(Args)).wait();
+
+    constexpr unsigned int TILE = Kernel::TILE_SIZE;
+    constexpr unsigned int TILES_PER_BLOCK = Kernel::TILES_PER_BLOCK;
+
+    queue
+      .submit([&](sycl::handler &h) {
+        h.parallel_for(sycl::nd_range<1>(sycl::range<1>(total), sycl::range<1>(block)),
+                       [=](sycl::nd_item<1> item) [[sycl::reqd_sub_group_size(TILE)]] {
+                         const size_t x_offset = item.get_group(0) * TILES_PER_BLOCK;
+                         sycl::sub_group sg = item.get_sub_group();
+                         ThreadTile<TILE> tile(sg, item);
+
+                         Kernel functor(*dev_args);
+                         functor(x_offset, tile);
+                       });
+      })
+      .wait();
+
+    sycl::free(dev_args, queue);
+  }
+
+#else // CUDA / HIP
 
   using ThreadBlock = cg::thread_block;
 #if defined(GPU_TARGET_CUDA)
@@ -114,5 +226,7 @@ namespace contract
     const void *func = reinterpret_cast<const void *>(kernel<Kernel, Args>);
     target_launch_kernel(func, grid, block);
   }
+
+#endif // GPU_TARGET_SYCL
 
 } // namespace contract

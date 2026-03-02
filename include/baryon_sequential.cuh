@@ -34,13 +34,11 @@ namespace contract
   };
 
   template <BaryonContractType CONTRACT, BaryonSequentialType SEQUENTIAL, int GAMMA_MN, typename F>
-  __device__ __forceinline__ void
-  baryon_sequential_local(Complex<F> propag_i[Ns * Ns][Nc * Nc], Complex<F> propag_j[Ns * Ns][Nc * Nc],
-                          Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl, int idx)
+  __device__ __forceinline__ void baryon_sequential_local(Complex<F> propag_i[Ns * Ns][Nc * Nc],
+                                                          Complex<F> propag_j[Ns * Ns][Nc * Nc],
+                                                          Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij,
+                                                          int gamma_kl, int idx, ThreadTile<TILE_SIZE> tile)
   {
-    ThreadBlock block = cg::this_thread_block();
-    ThreadTile<TILE_SIZE> tile = cg::tiled_partition<TILE_SIZE>(block);
-
     using T = Complex<F>;
     constexpr bool SWAP_IJ = (CONTRACT == IM_JK_NL || CONTRACT == IM_JL_NK);
     constexpr bool SWAP_KL = (CONTRACT == IL_JK_NM || CONTRACT == IL_JM_NK || CONTRACT == IM_JL_NK);
@@ -131,8 +129,17 @@ namespace contract
             tmp_color = epsilon_abc_def(propag_i[ik], propag_n[nl]);
             tmp = gamma_ij_data * gamma_kl_data * gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
             F *propag_j_ptr = reinterpret_cast<F *>(&propag_j[jm][ad]);
+#if defined(GPU_TARGET_SYCL)
+            sycl::atomic_ref<F, sycl::memory_order::relaxed, sycl::memory_scope::work_group,
+                             sycl::access::address_space::local_space>(propag_j_ptr[0])
+              .fetch_add(tmp.real());
+            sycl::atomic_ref<F, sycl::memory_order::relaxed, sycl::memory_scope::work_group,
+                             sycl::access::address_space::local_space>(propag_j_ptr[1])
+              .fetch_add(tmp.imag());
+#else
             atomicAdd(&propag_j_ptr[0], tmp.real());
             atomicAdd(&propag_j_ptr[1], tmp.imag());
+#endif
           }
         }
       } else if constexpr (SEQUENTIAL == SEQUENTIAL_N) {
@@ -147,9 +154,18 @@ namespace contract
             int nl = n * Ns + l;
             tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jm]);
             tmp = gamma_ij_data * gamma_kl_data * gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
-            F *propag_n_ptr = reinterpret_cast<double *>(&propag_n[nl][ad]);
+            F *propag_n_ptr = reinterpret_cast<F *>(&propag_n[nl][ad]);
+#if defined(GPU_TARGET_SYCL)
+            sycl::atomic_ref<F, sycl::memory_order::relaxed, sycl::memory_scope::work_group,
+                             sycl::access::address_space::local_space>(propag_n_ptr[0])
+              .fetch_add(tmp.real());
+            sycl::atomic_ref<F, sycl::memory_order::relaxed, sycl::memory_scope::work_group,
+                             sycl::access::address_space::local_space>(propag_n_ptr[1])
+              .fetch_add(tmp.imag());
+#else
             atomicAdd(&propag_n_ptr[0], tmp.real());
             atomicAdd(&propag_n_ptr[1], tmp.imag());
+#endif
           }
         }
       }
@@ -159,9 +175,21 @@ namespace contract
   template <typename Args>
   __device__ void baryon_sequential_i_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
+#if defined(GPU_TARGET_SYCL)
+    auto &propag_i
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_j
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_n
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+#else
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+#endif
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -175,7 +203,7 @@ namespace contract
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+                                                                            args.gamma_ij, args.gamma_kl, tid, tile);
       tile.sync();
 
       tile_store_vector(tile, args.propag_i, propag_j[gid], x_offset);
@@ -186,7 +214,7 @@ namespace contract
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+                                                                            args.gamma_ij, args.gamma_kl, tid, tile);
       tile.sync();
 
       tile_store_vector(tile, args.propag_i, propag_i[gid], x_offset);
@@ -196,9 +224,21 @@ namespace contract
   template <typename Args>
   __device__ void baryon_sequential_j_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
+#if defined(GPU_TARGET_SYCL)
+    auto &propag_i
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_j
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_n
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+#else
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+#endif
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -212,7 +252,7 @@ namespace contract
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+                                                                            args.gamma_ij, args.gamma_kl, tid, tile);
       tile.sync();
 
       tile_store_vector(tile, args.propag_j, propag_i[gid], x_offset);
@@ -223,7 +263,7 @@ namespace contract
       tile.sync();
 
       baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+                                                                            args.gamma_ij, args.gamma_kl, tid, tile);
       tile.sync();
 
       tile_store_vector(tile, args.propag_j, propag_j[gid], x_offset);
@@ -233,9 +273,21 @@ namespace contract
   template <typename Args>
   __device__ void baryon_sequential_n_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
+#if defined(GPU_TARGET_SYCL)
+    auto &propag_i
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_j
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_n
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+#else
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+#endif
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -254,7 +306,7 @@ namespace contract
     tile.sync();
 
     baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                          args.gamma_ij, args.gamma_kl, tid);
+                                                                          args.gamma_ij, args.gamma_kl, tid, tile);
     tile.sync();
 
     tile_store_vector(tile, args.propag_n, propag_n[gid], x_offset);
@@ -263,7 +315,10 @@ namespace contract
   template <typename Args> struct BaryonSequentialIKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialIKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
+#if !defined(GPU_TARGET_SYCL)
+      override
+#endif
     {
       baryon_sequential_i_kernel(this->args, x_offset, tile);
     }
@@ -272,7 +327,10 @@ namespace contract
   template <typename Args> struct BaryonSequentialJKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialJKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
+#if !defined(GPU_TARGET_SYCL)
+      override
+#endif
     {
       baryon_sequential_j_kernel(this->args, x_offset, tile);
     }
@@ -281,7 +339,10 @@ namespace contract
   template <typename Args> struct BaryonSequentialNKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialNKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
+#if !defined(GPU_TARGET_SYCL)
+      override
+#endif
     {
       baryon_sequential_n_kernel(this->args, x_offset, tile);
     }

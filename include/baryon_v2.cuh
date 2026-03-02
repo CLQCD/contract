@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(GPU_TARGET_SYCL)
+#error "baryon_v2 is not supported with the SYCL backend"
+#endif
+
 #include <kernel.cuh>
 #include <contract_enum.h>
 #include <gamma.cuh>

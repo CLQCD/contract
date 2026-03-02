@@ -1,13 +1,13 @@
-project(contract LANGUAGES C CXX)
 cmake_minimum_required(VERSION 3.18)
+project(contract LANGUAGES C CXX)
 
 
 set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install CACHE PATH "..." FORCE)
 set(CMAKE_CXX_STANDARD 17)
 
 
-set(GPU_TARGET cuda CACHE STRING "GPU target (cuda hip)")
-set_property(CACHE GPU_TARGET PROPERTY STRINGS "cuda;hip")
+set(GPU_TARGET cuda CACHE STRING "GPU target (cuda hip sycl)")
+set_property(CACHE GPU_TARGET PROPERTY STRINGS "cuda;hip;sycl")
 if(${GPU_TARGET} STREQUAL "cuda")
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
@@ -32,6 +32,10 @@ elseif(${GPU_TARGET} STREQUAL "hip")
     add_compile_definitions(
         $<$<COMPILE_LANG_AND_ID:HIP,Clang>:GPU_TARGET_HIP>
     )
+elseif(${GPU_TARGET} STREQUAL "sycl")
+    add_compile_definitions(GPU_TARGET_SYCL)
+    add_compile_options(-fsycl)
+    add_link_options(-fsycl)
 endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/include)

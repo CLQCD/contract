@@ -38,6 +38,7 @@ namespace diquark
   void launch(void *diquark, void *propag_i, void *propag_j, size_t volume, int gamma_ij, int gamma_kl);
 }
 
+#ifndef GPU_TARGET_SYCL
 void baryon_ik_jl_mn(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,
                      int gamma_kl, int gamma_mn);
 void baryon_ik_jn_ml(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,
@@ -50,3 +51,4 @@ void baryon_in_jk_ml(void *correl, void *propag_i, void *propag_j, void *propag_
                      int gamma_kl, int gamma_mn);
 void baryon_in_jl_mk(void *correl, void *propag_i, void *propag_j, void *propag_m, size_t volume, int gamma_ij,
                      int gamma_kl, int gamma_mn);
+#endif

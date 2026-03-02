@@ -38,9 +38,8 @@ void baryon_general_two_point(void *correl, void *propag_i, void *propag_j, void
                               BaryonContractType contract_type, size_t volume, int gamma_ij, int gamma_kl,
                               double _Complex *project_mn)
 {
-  std::complex<double> project_mn_[16];
-  for (int ij = 0; ij < 16; ++ij) { project_mn_[ij] = {creal(project_mn[ij]), cimag(project_mn[ij])}; }
-  baryon_general::launch(correl, propag_i, propag_j, propag_n, contract_type, volume, gamma_ij, gamma_kl, project_mn_);
+  std::complex<double> *project_mn_cxx = reinterpret_cast<std::complex<double> *>(project_mn);
+  baryon_general::launch(correl, propag_i, propag_j, propag_n, contract_type, volume, gamma_ij, gamma_kl, project_mn_cxx);
   return;
 }
 
@@ -63,6 +62,7 @@ void baryon_sequential_two_point(void *propag_i, void *propag_j, void *propag_n,
   return;
 }
 
+#ifndef GPU_TARGET_SYCL
 void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
                          size_t volume, int gamma_ij, int gamma_kl, int gamma_mn)
 {
@@ -77,6 +77,7 @@ void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *pro
   }
   return;
 }
+#endif
 
 void init(int device)
 {

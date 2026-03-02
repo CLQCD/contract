@@ -6,6 +6,18 @@
 #include <hip/hip_vector_types.h>
 #endif
 
+#if defined(GPU_TARGET_SYCL)
+#ifndef __host__
+#define __host__
+#endif
+#ifndef __device__
+#define __device__
+#endif
+#ifndef __forceinline__
+#define __forceinline__ inline __attribute__((always_inline))
+#endif
+#endif
+
 namespace contract
 {
 
@@ -18,9 +30,12 @@ namespace contract
 
     Complex() = default;
     __host__ __device__ __forceinline__ Complex(double r, double i = 0.0) : x(r), y(i) { }
+#if !defined(GPU_TARGET_SYCL)
     __host__ __device__ __forceinline__ explicit Complex(const double2 &z) : x(z.x), y(z.y) { }
+#endif
     __host__ __forceinline__ explicit Complex(const std::complex<double> &z) : x(z.real()), y(z.imag()) { }
 
+#if !defined(GPU_TARGET_SYCL)
     __host__ __device__ __forceinline__ operator double2() const { return make_double2(x, y); }
     __host__ __device__ __forceinline__ Complex &operator=(const double2 &z)
     {
@@ -28,6 +43,7 @@ namespace contract
       y = z.y;
       return *this;
     }
+#endif
     __host__ __forceinline__ operator std::complex<double>() const { return std::complex<double>(x, y); }
     __host__ __forceinline__ Complex &operator=(const std::complex<double> &z)
     {
@@ -40,6 +56,13 @@ namespace contract
     // __host__ __device__ __forceinline__ double &real() { return x; }
     __host__ __device__ __forceinline__ double imag() const { return y; }
     // __host__ __device__ __forceinline__ double &imag() { return y; }
+
+    __host__ __device__ __forceinline__ Complex &operator=(double val)
+    {
+      x = val;
+      y = 0.0;
+      return *this;
+    }
 
     __host__ __device__ __forceinline__ Complex operator+() const { return *this; }
     __host__ __device__ __forceinline__ Complex operator-() const { return Complex(-x, -y); }
@@ -138,9 +161,12 @@ namespace contract
 
     Complex() = default;
     __host__ __device__ __forceinline__ Complex(float r, float i = 0.0f) : x(r), y(i) { }
+#if !defined(GPU_TARGET_SYCL)
     __host__ __device__ __forceinline__ explicit Complex(const float2 &z) : x(z.x), y(z.y) { }
+#endif
     __host__ __forceinline__ explicit Complex(const std::complex<float> &z) : x(z.real()), y(z.imag()) { }
 
+#if !defined(GPU_TARGET_SYCL)
     __host__ __device__ __forceinline__ operator float2() const { return make_float2(x, y); }
     __host__ __device__ __forceinline__ Complex &operator=(const float2 &z)
     {
@@ -148,6 +174,7 @@ namespace contract
       y = z.y;
       return *this;
     }
+#endif
     __host__ __forceinline__ operator std::complex<float>() const { return std::complex<float>(x, y); }
     __host__ __forceinline__ Complex &operator=(const std::complex<float> &z)
     {
@@ -160,6 +187,13 @@ namespace contract
     // __host__ __device__ __forceinline__ float &real() { return x; }
     __host__ __device__ __forceinline__ float imag() const { return y; }
     // __host__ __device__ __forceinline__ float &imag() { return y; }
+
+    __host__ __device__ __forceinline__ Complex &operator=(float val)
+    {
+      x = val;
+      y = 0.0f;
+      return *this;
+    }
 
     __host__ __device__ __forceinline__ Complex operator+() const { return *this; }
     __host__ __device__ __forceinline__ Complex operator-() const { return Complex(-x, -y); }

@@ -12,11 +12,6 @@ namespace baryon_sequential_j
       exit(-1);
     }
 
-    unsigned int grid = (volume * (Ns * Ns) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    unsigned int block = BLOCK_SIZE;
-    dim3 gridDim(grid, 1U, 1U);
-    dim3 blockDim(block, 1, 1);
-
     using Args = contract::BaryonSequentialArgs<double, CONTRACT, GAMMA_MN>;
     using Kernel = contract::BaryonSequentialJKernel<Args>;
     Args args(propag_i, propag_j, propag_n, gamma_ij, gamma_kl);

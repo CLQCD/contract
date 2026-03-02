@@ -52,9 +52,20 @@ namespace contract
   template <typename Args>
   __device__ void meson_all_source_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
+#if defined(GPU_TARGET_SYCL)
+    auto &propag_i
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_j
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &correl = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns]>(
+      tile.item.get_group());
+#else
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
+#endif
 
     using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
 
@@ -77,7 +88,11 @@ namespace contract
   template <typename Args> struct MesonAllSourceKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonAllSourceKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
+#if defined(GPU_TARGET_SYCL)
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
+#else
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+#endif
     {
       meson_all_source_kernel(this->args, x_offset, tile);
     }
@@ -86,9 +101,20 @@ namespace contract
   template <typename Args>
   __device__ void meson_all_sink_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
+#if defined(GPU_TARGET_SYCL)
+    auto &propag_i
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &propag_j
+      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
+        tile.item.get_group());
+    auto &correl = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns]>(
+      tile.item.get_group());
+#else
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
+#endif
 
     using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
 
@@ -111,7 +137,11 @@ namespace contract
   template <typename Args> struct MesonAllSinkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonAllSinkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
+#if defined(GPU_TARGET_SYCL)
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
+#else
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+#endif
     {
       meson_all_sink_kernel(this->args, x_offset, tile);
     }

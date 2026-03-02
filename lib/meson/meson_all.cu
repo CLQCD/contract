@@ -10,11 +10,6 @@ namespace meson_all_source
       exit(-1);
     }
 
-    unsigned int grid = (volume * (Ns * Ns) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    unsigned int block = BLOCK_SIZE;
-    dim3 gridDim(grid, 1U, 1U);
-    dim3 blockDim(block, 1, 1);
-
     using Args = contract::MesonAllArgs<double>;
     using Kernel = contract::MesonAllSourceKernel<Args>;
     Args args(correl, propag_i, propag_j, gamma_ij);
@@ -30,11 +25,6 @@ namespace meson_all_sink
       fprintf(stderr, "Error: Volume must be a multiple of TILES_PER_BLOCK\n");
       exit(-1);
     }
-
-    unsigned int grid = (volume * (Ns * Ns) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    unsigned int block = BLOCK_SIZE;
-    dim3 gridDim(grid, 1U, 1U);
-    dim3 blockDim(block, 1, 1);
 
     using Args = contract::MesonAllArgs<double>;
     using Kernel = contract::MesonAllSinkKernel<Args>;

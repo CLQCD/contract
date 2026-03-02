@@ -2,6 +2,11 @@
 
 #include <stdlib.h>
 
+#if defined(GPU_TARGET_SYCL)
+#include <sycl/sycl.hpp>
+sycl::queue &get_sycl_queue();
+#endif
+
 namespace target
 {
 
