@@ -82,14 +82,14 @@ namespace contract
     }
   }
 
-  template <typename Args> __device__ void baryon_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  template <typename Args> __device__ void baryon_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    __shared__ backend_warp_reduce_storage<typename Args::T, TILE_SIZE> storage[TILES_PER_BLOCK];
+    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -111,13 +111,13 @@ namespace contract
                                                  args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
 
-    tile_reduce_store(tile, args.correl, correl[gid], storage[gid], x_offset);
+    tile_reduce_store<Reduce>(tile, args.correl, correl[gid], x_offset);
   }
 
   template <typename Args> struct BaryonKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       baryon_kernel(this->args, x_offset, tile);
     }

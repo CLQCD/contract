@@ -6,22 +6,22 @@
 namespace contract
 {
 
-  template <unsigned int TILE_SIZE, typename T>
-  __device__ __forceinline__ T tile_shfl_down(cg_tile<TILE_SIZE> tile, T var, unsigned int delta)
+  template <typename T, unsigned int TILE_SIZE>
+  __device__ __forceinline__ T tile_shfl_down(ThreadTile<TILE_SIZE> tile, T var, unsigned int delta)
   {
     return tile.shfl_down(var, delta);
   }
 
-  template <unsigned int TILE_SIZE, typename F>
-  __device__ __forceinline__ Complex<F> tile_shfl_down(cg_tile<TILE_SIZE> tile, Complex<F> var, unsigned int delta)
+  template <typename F, unsigned int TILE_SIZE>
+  __device__ __forceinline__ Complex<F> tile_shfl_down(ThreadTile<TILE_SIZE> tile, Complex<F> var, unsigned int delta)
   {
     F r = tile.shfl_down(var.real(), delta);
     F i = tile.shfl_down(var.imag(), delta);
     return Complex<F>(r, i);
   }
 
-  template <unsigned int TILE_SIZE, typename T>
-  __device__ __forceinline__ void tile_load_bcast(cg_tile<TILE_SIZE> tile, T dst[TILE_SIZE], void *src, size_t x_offset)
+  template <typename T, unsigned int TILE_SIZE>
+  __device__ __forceinline__ void tile_load_bcast(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
   {
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -36,20 +36,14 @@ namespace contract
     }
   }
 
-  template <unsigned int TILE_SIZE, typename T, typename S>
-  __device__ __forceinline__ void tile_reduce_store(cg_tile<TILE_SIZE> tile, void *dst, T src[TILE_SIZE], S &storage,
-                                                    size_t x_offset)
+  template <typename Reduce, typename T, unsigned int TILE_SIZE>
+  __device__ __forceinline__ void tile_reduce_store(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset + gid;
     T *__restrict__ dst_ptr = static_cast<T *>(dst);
-#if defined(GPU_TARGET_CUDA)
-    T var = backend_warp_reduce<T, TILE_SIZE>(storage).Reduce(src[tid], cuda::std::plus<>());
-#elif defined(GPU_TARGET_HIP)
-    T var;
-    backend_warp_reduce<T, TILE_SIZE>().reduce(src[tid], var, storage, rocprim::plus<T>());
-#endif
+    T var = Reduce::plus(gid, src[tid]);
     if constexpr (TILE_SIZE == 1) {
       dst_ptr[offset] = var;
     } else {
@@ -57,8 +51,8 @@ namespace contract
     }
   }
 
-  template <unsigned int TILE_SIZE, typename T>
-  __device__ __forceinline__ void tile_load_scalar(cg_tile<TILE_SIZE> tile, T dst[TILE_SIZE], void *src, size_t x_offset)
+  template <typename T, unsigned int TILE_SIZE>
+  __device__ __forceinline__ void tile_load_scalar(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
@@ -66,8 +60,8 @@ namespace contract
     dst[tid] = src_ptr[offset];
   }
 
-  template <unsigned int TILE_SIZE, typename T>
-  __device__ __forceinline__ void tile_store_scalar(cg_tile<TILE_SIZE> tile, void *dst, T src[TILE_SIZE], size_t x_offset)
+  template <typename T, unsigned int TILE_SIZE>
+  __device__ __forceinline__ void tile_store_scalar(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
@@ -75,8 +69,8 @@ namespace contract
     dst_ptr[offset] = src[tid];
   }
 
-  template <unsigned int VECTOR_SIZE, unsigned int TILE_SIZE, typename T>
-  __device__ __forceinline__ void tile_load_vector(cg_tile<TILE_SIZE> tile, T dst[TILE_SIZE][VECTOR_SIZE], void *src,
+  template <typename T, unsigned int TILE_SIZE, unsigned int VECTOR_SIZE>
+  __device__ __forceinline__ void tile_load_vector(ThreadTile<TILE_SIZE> tile, T (*dst)[VECTOR_SIZE], void *src,
                                                    size_t x_offset)
   {
     const auto gid = tile.meta_group_rank();
@@ -87,96 +81,9 @@ namespace contract
     for (int v = 0; v < VECTOR_SIZE; ++v) { (&dst[0][0])[tid + v * TILE_SIZE] = src_ptr[offset + v * TILE_SIZE]; }
   }
 
-  template <unsigned int VECTOR_SIZE, unsigned int TILE_SIZE, typename T>
-  __device__ __forceinline__ void tile_store_vector(cg_tile<TILE_SIZE> tile, void *dst, T src[TILE_SIZE][VECTOR_SIZE],
+  template <typename T, unsigned int TILE_SIZE, unsigned int VECTOR_SIZE>
+  __device__ __forceinline__ void tile_store_vector(ThreadTile<TILE_SIZE> tile, void *dst, T (*src)[VECTOR_SIZE],
                                                     size_t x_offset)
-  {
-    const auto gid = tile.meta_group_rank();
-    const auto tid = tile.thread_rank();
-    const size_t offset = (x_offset + gid) * TILE_SIZE * VECTOR_SIZE + tid;
-    T *__restrict__ dst_ptr = static_cast<T *>(dst);
-#pragma unroll
-    for (int v = 0; v < VECTOR_SIZE; ++v) { dst_ptr[offset + v * TILE_SIZE] = (&src[0][0])[tid + v * TILE_SIZE]; }
-  }
-
-  template <int TILE_SIZE, typename T>
-  __device__ __forceinline__ T tile_shfl_down(T var, unsigned int delta, cg_tile<TILE_SIZE> tile)
-  {
-    return tile.shfl_down(var, delta);
-  }
-
-  template <int TILE_SIZE, typename F>
-  __device__ __forceinline__ Complex<F> tile_shfl_down(Complex<F> var, unsigned int delta, cg_tile<TILE_SIZE> tile)
-  {
-    F r = tile.shfl_down(var.real(), delta);
-    F i = tile.shfl_down(var.imag(), delta);
-    return Complex<F>(r, i);
-  }
-
-  template <int TILE_SIZE, typename T>
-  __device__ __forceinline__ void bcast_lane(T data[TILE_SIZE], cg_tile<TILE_SIZE> tile)
-  {
-    auto tid = tile.thread_rank();
-    if (tid > 0) data[tid] = data[0];
-  }
-
-  template <int TILE_SIZE, typename T>
-  __device__ __forceinline__ void reduce_lane(T data[TILE_SIZE], cg_tile<TILE_SIZE> tile)
-  {
-    auto tid = tile.thread_rank();
-#if defined(GPU_TARGET_CUDA)
-    T var = cg::reduce(tile, data[tid], cg::plus<T>());
-#elif defined(GPU_TARGET_HIP)
-    T var = data[tid];
-#pragma unroll
-    for (int stride = TILE_SIZE / 2; stride > 0; stride /= 2) { var += tile_shfl_down<TILE_SIZE>(var, stride, tile); }
-#endif
-    if (tid == 0) data[0] = var;
-  }
-
-  template <int TILE_SIZE, typename T>
-  __device__ __forceinline__ void load_tile(T dst[TILE_SIZE], void *src, size_t x_offset, cg_tile<TILE_SIZE> tile)
-  {
-    const auto gid = tile.meta_group_rank();
-    const auto tid = tile.thread_rank();
-    const size_t offset = x_offset + gid;
-    const T *__restrict__ src_ptr = static_cast<const T *>(src);
-    if constexpr (TILE_SIZE == 1) {
-      dst[0] = src_ptr[offset];
-    } else {
-      if (tid == 0) { dst[0] = src_ptr[offset]; }
-    }
-  }
-
-  template <int TILE_SIZE, typename T>
-  __device__ __forceinline__ void store_tile(void *dst, T src[TILE_SIZE], size_t x_offset, cg_tile<TILE_SIZE> tile)
-  {
-    const auto gid = tile.meta_group_rank();
-    const auto tid = tile.thread_rank();
-    const size_t offset = x_offset + gid;
-    T *__restrict__ dst_ptr = static_cast<T *>(dst);
-    if constexpr (TILE_SIZE == 1) {
-      dst_ptr[offset] = src[0];
-    } else {
-      if (tid == 0) { dst_ptr[offset] = src[0]; }
-    }
-  }
-
-  template <int TILE_SIZE, int VECTOR_SIZE, typename T>
-  __device__ __forceinline__ void load_vector(T dst[TILE_SIZE][VECTOR_SIZE], void *src, size_t x_offset,
-                                              cg_tile<TILE_SIZE> tile)
-  {
-    const auto gid = tile.meta_group_rank();
-    const auto tid = tile.thread_rank();
-    const size_t offset = (x_offset + gid) * TILE_SIZE * VECTOR_SIZE + tid;
-    const T *__restrict__ src_ptr = static_cast<const T *>(src);
-#pragma unroll
-    for (int v = 0; v < VECTOR_SIZE; ++v) { (&dst[0][0])[tid + v * TILE_SIZE] = src_ptr[offset + v * TILE_SIZE]; }
-  }
-
-  template <int TILE_SIZE, int VECTOR_SIZE, typename T>
-  __device__ __forceinline__ void store_vector(void *dst, T src[TILE_SIZE][VECTOR_SIZE], size_t x_offset,
-                                               cg_tile<TILE_SIZE> tile)
   {
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();

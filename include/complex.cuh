@@ -2,11 +2,9 @@
 
 #include <complex>
 
-// #if defined(GPU_TARGET_HIP)
-// #include <hip/hip_vector_types.h>
-// #else
-// #include <vector_types.h>
-// #endif
+#ifdef GPU_TARGET_HIP
+#include <hip/hip_vector_types.h>
+#endif
 
 namespace contract
 {

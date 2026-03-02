@@ -50,13 +50,13 @@ namespace contract
   }
 
   template <typename Args>
-  __device__ void meson_all_source_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  __device__ void meson_all_source_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    __shared__ backend_warp_reduce_storage<typename Args::T, TILE_SIZE> storage[TILES_PER_BLOCK];
+    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -69,7 +69,7 @@ namespace contract
       meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma, gamma_kl, tid);
       tile.sync();
 
-      tile_reduce_store(tile, args.correl[gamma_kl], correl[gid], storage[gid], x_offset);
+      tile_reduce_store<Reduce>(tile, args.correl[gamma_kl], correl[gid], x_offset);
       tile.sync();
     }
   }
@@ -77,20 +77,20 @@ namespace contract
   template <typename Args> struct MesonAllSourceKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonAllSourceKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       meson_all_source_kernel(this->args, x_offset, tile);
     }
   };
 
   template <typename Args>
-  __device__ void meson_all_sink_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  __device__ void meson_all_sink_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    __shared__ backend_warp_reduce_storage<typename Args::T, TILE_SIZE> storage[TILES_PER_BLOCK];
+    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -103,7 +103,7 @@ namespace contract
       meson_local(correl[gid], propag_i[gid], propag_j[gid], gamma_ij, args.gamma, tid);
       tile.sync();
 
-      tile_reduce_store(tile, args.correl[gamma_ij], correl[gid], storage[gid], x_offset);
+      tile_reduce_store<Reduce>(tile, args.correl[gamma_ij], correl[gid], x_offset);
       tile.sync();
     }
   }
@@ -111,7 +111,7 @@ namespace contract
   template <typename Args> struct MesonAllSinkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonAllSinkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       meson_all_sink_kernel(this->args, x_offset, tile);
     }

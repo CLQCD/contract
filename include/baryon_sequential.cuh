@@ -38,8 +38,8 @@ namespace contract
   baryon_sequential_local(Complex<F> propag_i[Ns * Ns][Nc * Nc], Complex<F> propag_j[Ns * Ns][Nc * Nc],
                           Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl, int idx)
   {
-    cg_block block = cg::this_thread_block();
-    cg_tile<TILE_SIZE> tile = cg::tiled_partition<TILE_SIZE>(block);
+    ThreadBlock block = cg::this_thread_block();
+    ThreadTile<TILE_SIZE> tile = cg::tiled_partition<TILE_SIZE>(block);
 
     using T = Complex<F>;
     constexpr bool SWAP_IJ = (CONTRACT == IM_JK_NL || CONTRACT == IM_JL_NK);
@@ -157,7 +157,7 @@ namespace contract
   }
 
   template <typename Args>
-  __device__ void baryon_sequential_i_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  __device__ void baryon_sequential_i_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
@@ -194,7 +194,7 @@ namespace contract
   }
 
   template <typename Args>
-  __device__ void baryon_sequential_j_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  __device__ void baryon_sequential_j_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
@@ -231,7 +231,7 @@ namespace contract
   }
 
   template <typename Args>
-  __device__ void baryon_sequential_n_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  __device__ void baryon_sequential_n_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
@@ -263,7 +263,7 @@ namespace contract
   template <typename Args> struct BaryonSequentialIKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialIKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       baryon_sequential_i_kernel(this->args, x_offset, tile);
     }
@@ -272,7 +272,7 @@ namespace contract
   template <typename Args> struct BaryonSequentialJKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialJKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       baryon_sequential_j_kernel(this->args, x_offset, tile);
     }
@@ -281,7 +281,7 @@ namespace contract
   template <typename Args> struct BaryonSequentialNKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialNKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       baryon_sequential_n_kernel(this->args, x_offset, tile);
     }

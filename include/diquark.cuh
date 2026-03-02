@@ -57,7 +57,7 @@ namespace contract
     }
   }
 
-  template <typename Args> __device__ void diquark_kernel(const Args &args, size_t x_offset, cg_tile<TILE_SIZE> tile)
+  template <typename Args> __device__ void diquark_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
@@ -79,7 +79,7 @@ namespace contract
   template <typename Args> struct DiquarkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr DiquarkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE> tile) override
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
     {
       diquark_kernel(this->args, x_offset, tile);
     }

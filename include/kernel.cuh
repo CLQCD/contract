@@ -15,18 +15,6 @@
 #endif
 
 namespace cg = cooperative_groups;
-using cg_block = cg::thread_block;
-#if defined(GPU_TARGET_CUDA)
-template <unsigned int TILE_SIZE> using cg_tile = cg::thread_block_tile<TILE_SIZE, cg_block>;
-template <typename T, unsigned int TILE_SIZE> using backend_warp_reduce = cub::WarpReduce<T, TILE_SIZE>;
-template <typename T, unsigned int TILE_SIZE>
-using backend_warp_reduce_storage = typename cub::WarpReduce<T, TILE_SIZE>::TempStorage;
-#elif defined(GPU_TARGET_HIP)
-template <unsigned int TILE_SIZE> using cg_tile = cg::thread_block_tile<TILE_SIZE>;
-template <typename T, unsigned int TILE_SIZE> using backend_warp_reduce = rocprim::warp_reduce<T, TILE_SIZE>;
-template <typename T, unsigned int TILE_SIZE>
-using backend_warp_reduce_storage = typename rocprim::warp_reduce<T, TILE_SIZE>::storage_type;
-#endif
 
 #define for_abc_def                                                                                                    \
   for (int a = 0; a < 3; ++a)                                                                                          \
@@ -49,6 +37,37 @@ using backend_warp_reduce_storage = typename rocprim::warp_reduce<T, TILE_SIZE>:
 namespace contract
 {
 
+  using ThreadBlock = cg::thread_block;
+#if defined(GPU_TARGET_CUDA)
+  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE, ThreadBlock>;
+#elif defined(GPU_TARGET_HIP)
+  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE>;
+#endif
+
+  template <typename T, unsigned int BLOCK_SIZE, unsigned int TILE_SIZE> struct WarpReduce {
+#if defined(GPU_TARGET_CUDA)
+    using TargetWarpReduce = cub::WarpReduce<T, TILE_SIZE>;
+    using TargetWarpReduceStorage = typename cub::WarpReduce<T, TILE_SIZE>::TempStorage;
+#elif defined(GPU_TARGET_HIP)
+    using TargetWarpReduce = rocprim::warp_reduce<T, TILE_SIZE>;
+    using TargetWarpReduceStorage = typename rocprim::warp_reduce<T, TILE_SIZE>::storage_type;
+#endif
+
+    WarpReduce() = default;
+
+    static __device__ __forceinline__ T plus(const unsigned int gid, T input)
+    {
+      __shared__ TargetWarpReduceStorage storage[BLOCK_SIZE / TILE_SIZE];
+#if defined(GPU_TARGET_CUDA)
+      return TargetWarpReduce(storage[gid]).Reduce(input, cuda::std::plus<>());
+#elif defined(GPU_TARGET_HIP)
+      T output;
+      TargetWarpReduce().reduce(input, output, storage[gid], rocprim::plus<T>());
+      return output;
+#endif
+    }
+  };
+
   constexpr size_t constant_buffer_size() { return 32764; };
 
   __constant__ char buffer[constant_buffer_size()];
@@ -66,10 +85,9 @@ namespace contract
 
   template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_>
   struct TileKernel : public BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_> {
-
     constexpr TileKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_>(args) { }
 
-    virtual __device__ __forceinline__ void operator()(size_t x_offset, cg_tile<TILE_SIZE_> tile) = 0;
+    virtual __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE_> tile) = 0;
   };
 
   template <typename Kernel, typename Args> __global__ void kernel()
@@ -78,8 +96,8 @@ namespace contract
     Kernel functor(get_args<Args>());
 
     if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
-      cg_block block = cg::this_thread_block();
-      cg_tile<Kernel::TILE_SIZE> tile = cg::tiled_partition<Kernel::TILE_SIZE>(block);
+      ThreadBlock block = cg::this_thread_block();
+      ThreadTile<Kernel::TILE_SIZE> tile = cg::tiled_partition<Kernel::TILE_SIZE>(block);
       functor(x_offset, tile);
     } else {
       functor(x_offset);

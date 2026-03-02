@@ -1,5 +1,6 @@
 #pragma once
 
+#include <kernel.cuh>
 #include <contract_enum.h>
 #include <gamma.cuh>
 
