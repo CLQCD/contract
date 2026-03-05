@@ -51,8 +51,24 @@ namespace contract
     }
   }
 
+  template <typename Reduce, typename T, unsigned int TILE_SIZE, unsigned int VECTOR_SIZE>
+  __device__ __forceinline__ void tile_allreduce_vector(ThreadTile<TILE_SIZE> tile, T (*dst)[VECTOR_SIZE],
+                                                        T (*src)[VECTOR_SIZE])
+  {
+    const auto gid = tile.meta_group_rank();
+    const auto tid = tile.thread_rank();
+    if constexpr (TILE_SIZE == 1) {
+    } else {
+#pragma unroll
+      for (int v = 0; v < VECTOR_SIZE; ++v) {
+        T var = Reduce::plus(gid, src[tid][v]);
+        dst[tid][v] = tile.shfl(var, 0);
+      }
+    }
+  }
+
   template <typename T, unsigned int TILE_SIZE>
-  __device__ __forceinline__ void tile_load_scalar(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
+  __device__ __forceinline__ void tile_load(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
@@ -61,7 +77,7 @@ namespace contract
   }
 
   template <typename T, unsigned int TILE_SIZE>
-  __device__ __forceinline__ void tile_store_scalar(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
+  __device__ __forceinline__ void tile_store(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset * TILE_SIZE + threadIdx.x;

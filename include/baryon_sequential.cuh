@@ -33,7 +33,7 @@ namespace contract
     }
   };
 
-  template <BaryonContractType CONTRACT, BaryonSequentialType SEQUENTIAL, int GAMMA_MN, typename F>
+  template <typename Reduce, BaryonContractType CONTRACT, BaryonSequentialType SEQUENTIAL, int GAMMA_MN, typename F>
   __device__ __forceinline__ void
   baryon_sequential_local(Complex<F> propag_i[Ns * Ns][Nc * Nc], Complex<F> propag_j[Ns * Ns][Nc * Nc],
                           Complex<F> propag_n[Ns * Ns][Nc * Nc], int gamma_ij, int gamma_kl, int idx)
@@ -87,17 +87,7 @@ namespace contract
           propag_n[idx][ad] = gamma_ij_data * gamma_kl_data * tmp_color;
         }
         tile.sync();
-#pragma unroll
-        for (int stride = TILE_SIZE / 2; stride > 0; stride /= 2) {
-          if (idx < stride) {
-            for_a_d { propag_n[idx][ad] += propag_n[idx + stride][ad]; }
-          }
-          tile.sync();
-        }
-        if (idx > 0) {
-          for_a_d { propag_n[idx][ad] = propag_n[0][ad]; }
-        }
-        tile.sync();
+        tile_allreduce_vector<Reduce>(tile, propag_n, propag_n);
         int nm = idx;
         int n = nm / Ns;
         int m = nm % Ns;
@@ -163,6 +153,8 @@ namespace contract
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
 
+    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
+
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
@@ -174,8 +166,8 @@ namespace contract
       tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+      baryon_sequential_local<Reduce, Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
+        propag_i[gid], propag_j[gid], propag_n[gid], args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
       tile_store_vector(tile, args.propag_i, propag_j[gid], x_offset);
@@ -185,8 +177,8 @@ namespace contract
       tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+      baryon_sequential_local<Reduce, Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
+        propag_i[gid], propag_j[gid], propag_n[gid], args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
       tile_store_vector(tile, args.propag_i, propag_i[gid], x_offset);
@@ -200,6 +192,8 @@ namespace contract
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
 
+    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
+
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
@@ -211,8 +205,8 @@ namespace contract
       tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+      baryon_sequential_local<Reduce, Args::CONTRACT, SEQUENTIAL_I, Args::GAMMA_MN>(
+        propag_i[gid], propag_j[gid], propag_n[gid], args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
       tile_store_vector(tile, args.propag_j, propag_i[gid], x_offset);
@@ -222,8 +216,8 @@ namespace contract
       tile_load_vector(tile, propag_n[gid], args.propag_n, x_offset);
       tile.sync();
 
-      baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                            args.gamma_ij, args.gamma_kl, tid);
+      baryon_sequential_local<Reduce, Args::CONTRACT, SEQUENTIAL_J, Args::GAMMA_MN>(
+        propag_i[gid], propag_j[gid], propag_n[gid], args.gamma_ij, args.gamma_kl, tid);
       tile.sync();
 
       tile_store_vector(tile, args.propag_j, propag_j[gid], x_offset);
@@ -236,6 +230,8 @@ namespace contract
     __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
+
+    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -253,8 +249,8 @@ namespace contract
     }
     tile.sync();
 
-    baryon_sequential_local<Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(propag_i[gid], propag_j[gid], propag_n[gid],
-                                                                          args.gamma_ij, args.gamma_kl, tid);
+    baryon_sequential_local<Reduce, Args::CONTRACT, SEQUENTIAL_N, Args::GAMMA_MN>(
+      propag_i[gid], propag_j[gid], propag_n[gid], args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
 
     tile_store_vector(tile, args.propag_n, propag_n[gid], x_offset);
