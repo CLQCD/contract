@@ -21,6 +21,20 @@ namespace contract
   }
 
   template <typename T, unsigned int TILE_SIZE>
+  __device__ __forceinline__ T tile_shfl(ThreadTile<TILE_SIZE> tile, T var, int src)
+  {
+    return tile.shfl(var, src);
+  }
+
+  template <typename F, unsigned int TILE_SIZE>
+  __device__ __forceinline__ Complex<F> tile_shfl(ThreadTile<TILE_SIZE> tile, Complex<F> var, int src)
+  {
+    F r = tile.shfl(var.real(), src);
+    F i = tile.shfl(var.imag(), src);
+    return Complex<F>(r, i);
+  }
+
+  template <typename T, unsigned int TILE_SIZE>
   __device__ __forceinline__ void tile_load_bcast(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
   {
     const auto gid = tile.meta_group_rank();
@@ -32,13 +46,18 @@ namespace contract
     } else {
       T var;
       if (tid == 0) { var = src_ptr[offset]; }
+#if defined(GPU_TARGET_CUDA)
       dst[tid] = tile.shfl(var, 0);
+#elif defined(GPU_TARGET_HIP)
+      dst[tid] = tile_shfl(tile, var, 0);
+#endif
     }
   }
 
-  template <typename Reduce, typename T, unsigned int TILE_SIZE>
+  template <unsigned int BLOCK_SIZE, typename T, unsigned int TILE_SIZE>
   __device__ __forceinline__ void tile_reduce_store(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
+    using Reduce = WarpReduce<T, BLOCK_SIZE, TILE_SIZE>;
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset + gid;
@@ -51,10 +70,11 @@ namespace contract
     }
   }
 
-  template <typename Reduce, typename T, unsigned int TILE_SIZE, unsigned int VECTOR_SIZE>
+  template <unsigned int BLOCK_SIZE, typename T, unsigned int TILE_SIZE, unsigned int VECTOR_SIZE>
   __device__ __forceinline__ void tile_allreduce_vector(ThreadTile<TILE_SIZE> tile, T (*dst)[VECTOR_SIZE],
                                                         T (*src)[VECTOR_SIZE])
   {
+    using Reduce = WarpReduce<T, BLOCK_SIZE, TILE_SIZE>;
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
     if constexpr (TILE_SIZE == 1) {
@@ -62,7 +82,11 @@ namespace contract
 #pragma unroll
       for (int v = 0; v < VECTOR_SIZE; ++v) {
         T var = Reduce::plus(gid, src[tid][v]);
+#if defined(GPU_TARGET_CUDA)
         dst[tid][v] = tile.shfl(var, 0);
+#elif defined(GPU_TARGET_HIP)
+        dst[tid][v] = tile_shfl(tile, var, 0);
+#endif
       }
     }
   }

@@ -56,8 +56,6 @@ namespace contract
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
-
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
@@ -69,7 +67,7 @@ namespace contract
       meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma, gamma_kl, tid);
       tile.sync();
 
-      tile_reduce_store<Reduce>(tile, args.correl[gamma_kl], correl[gid], x_offset);
+      tile_reduce_store<BLOCK_SIZE>(tile, args.correl[gamma_kl], correl[gid], x_offset);
       tile.sync();
     }
   }
@@ -90,8 +88,6 @@ namespace contract
     __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 
-    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
-
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
@@ -103,7 +99,7 @@ namespace contract
       meson_local(correl[gid], propag_i[gid], propag_j[gid], gamma_ij, args.gamma, tid);
       tile.sync();
 
-      tile_reduce_store<Reduce>(tile, args.correl[gamma_ij], correl[gid], x_offset);
+      tile_reduce_store<BLOCK_SIZE>(tile, args.correl[gamma_ij], correl[gid], x_offset);
       tile.sync();
     }
   }
