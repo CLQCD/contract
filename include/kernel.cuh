@@ -51,57 +51,92 @@ namespace contract
 #if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
   using ThreadBlock = cg::thread_block;
 #elif defined(GPU_TARGET_SYCL)
-  using ThreadBlock = sycl::sub_group;
+  using ThreadBlock = sycl::nd_item<1>;
 #endif
 
 #if defined(GPU_TARGET_CUDA)
-  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE, ThreadBlock>;
-#elif defined(GPU_TARGET_HIP)
-  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE>;
-#elif defined(GPU_TARGET_SYCL)
   template <unsigned int TILE_SIZE> struct ThreadTile {
-    sycl::sub_group sg;
-    sycl::nd_item<1> item;
+    cg::thread_block_tile<TILE_SIZE, ThreadBlock> tile;
 
-    ThreadTile(sycl::sub_group sg_, sycl::nd_item<1> item_) : sg(sg_), item(item_) { }
+    __device__ __forceinline__ ThreadTile(ThreadBlock &block) : tile(cg::tiled_partition<TILE_SIZE>(block)) { }
 
-    unsigned int thread_rank() const { return sg.get_local_id()[0]; }
-    unsigned int meta_group_rank() const { return sg.get_group_id()[0]; }
+    __device__ __forceinline__ unsigned int thread_rank() const { return tile.thread_rank(); }
+    __device__ __forceinline__ unsigned int meta_group_rank() const { return tile.meta_group_rank(); }
 
-    template <typename T> T shfl(T val, unsigned int src) const { return sycl::select_from_group(sg, val, src); }
-    template <typename T> T shfl_down(T val, unsigned int delta) const
-    { return sycl::shift_group_left(sg, val, delta); }
+    __device__ __forceinline__ unsigned int thread_idx() const { return threadIdx.x; }
+    __device__ __forceinline__ unsigned int block_idx() const { return blockIdx.x; }
 
-    void sync() const { sycl::group_barrier(sg); }
-  };
-#endif
+    template <typename T> __device__ __forceinline__ T shfl(T val, unsigned int src) const
+    { return tile.shfl(val, src); }
+    template <typename T> __device__ __forceinline__ T shfl_down(T val, unsigned int delta) const
+    { return tile.shfl_down(val, delta); }
 
-  template <typename T, unsigned int BLOCK_SIZE, unsigned int TILE_SIZE> struct WarpReduce {
-    WarpReduce() = default;
+    __device__ __forceinline__ void sync() const { tile.sync(); }
+    __device__ __forceinline__ void sync_threads() const { __syncthreads(); }
 
-#if defined(GPU_TARGET_CUDA)
-    static __device__ __forceinline__ T plus(const unsigned int gid, T input)
+    template <unsigned int BLOCK_SIZE, typename T> __device__ __forceinline__ T plus(T input)
     {
       __shared__ typename cub::WarpReduce<T, TILE_SIZE>::TempStorage storage[BLOCK_SIZE / TILE_SIZE];
-      return cub::WarpReduce<T, TILE_SIZE>(storage[gid]).Reduce(input, cuda::std::plus<>());
+      return cub::WarpReduce<T, TILE_SIZE>(storage[meta_group_rank()]).Reduce(input, cuda::std::plus<>());
     }
+  };
 #elif defined(GPU_TARGET_HIP)
-    static __device__ __forceinline__ T plus(const unsigned int gid, T input)
+  template <unsigned int TILE_SIZE> struct ThreadTile {
+    cg::thread_block_tile<TILE_SIZE> tile;
+
+    __device__ __forceinline__ ThreadTile(ThreadBlock &block) : tile(cg::tiled_partition<TILE_SIZE>(block)) { }
+
+    __device__ __forceinline__ unsigned int thread_rank() const { return tile.thread_rank(); }
+    __device__ __forceinline__ unsigned int meta_group_rank() const { return tile.meta_group_rank(); }
+
+    __device__ __forceinline__ unsigned int thread_idx() const { return threadIdx.x; }
+    __device__ __forceinline__ unsigned int block_idx() const { return blockIdx.x; }
+
+    template <typename T> __device__ __forceinline__ T shfl(T val, unsigned int src) const
+    { return tile.shfl(val, src); }
+    template <typename T> __device__ __forceinline__ T shfl_down(T val, unsigned int delta) const
+    { return tile.shfl_down(val, delta); }
+
+    __device__ __forceinline__ void sync() const { tile.sync(); }
+    __device__ __forceinline__ void sync_threads() const { __syncthreads(); }
+
+    template <unsigned int BLOCK_SIZE, typename T> __device__ __forceinline__ T plus(T input)
     {
       __shared__ typename rocprim::warp_reduce<T, TILE_SIZE>::storage_type storage[BLOCK_SIZE / TILE_SIZE];
       T output;
-      rocprim::warp_reduce<T, TILE_SIZE>().reduce(input, output, storage[gid], rocprim::plus<T>());
+      rocprim::warp_reduce<T, TILE_SIZE>().reduce(input, output, storage[meta_group_rank()], rocprim::plus<T>());
       return output;
     }
+  };
 #elif defined(GPU_TARGET_SYCL)
-    static T plus(const unsigned int gid, T input, sycl::sub_group sg)
+  template <unsigned int TILE_SIZE> struct ThreadTile {
+    ThreadBlock item;
+    sycl::sub_group tile;
+
+    __device__ __forceinline__ ThreadTile(ThreadBlock &block) : item(block), tile(block.get_sub_group()) { }
+
+    __device__ __forceinline__ unsigned int thread_rank() const { return tile.get_local_id(0); }
+    __device__ __forceinline__ unsigned int meta_group_rank() const { return tile.get_group_id(0); }
+
+    __device__ __forceinline__ unsigned int thread_idx() const { return item.get_local_id(0); }
+    __device__ __forceinline__ unsigned int block_idx() const { return item.get_group_id(0); }
+
+    __device__ __forceinline__ template <typename T> T shfl(T val, unsigned int src) const
+    { return sycl::select_from_group(tile, val, src); }
+    __device__ __forceinline__ template <typename T> T shfl_down(T val, unsigned int delta) const
+    { return sycl::shift_group_left(tile, val, delta); }
+
+    __device__ __forceinline__ void sync() const { sycl::group_barrier(tile); }
+    __device__ __forceinline__ void sync_threads() const { sycl::group_barrier(item); }
+
+    __device__ __forceinline__ T plus(T input)
     {
-      typename T::value_type real = sycl::reduce_over_group(sg, input.real(), sycl::plus<>());
-      typename T::value_type imag = sycl::reduce_over_group(sg, input.imag(), sycl::plus<>());
+      typename T::value_type real = sycl::reduce_over_group(tile, input.real(), sycl::plus<>());
+      typename T::value_type imag = sycl::reduce_over_group(tile, input.imag(), sycl::plus<>());
       return {real, imag};
     }
-#endif
   };
+#endif
 
   template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
     const Args &args;
@@ -127,7 +162,7 @@ namespace contract
 
     if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
       ThreadBlock block = cg::this_thread_block();
-      ThreadTile<Kernel::TILE_SIZE> tile = cg::tiled_partition<Kernel::TILE_SIZE>(block);
+      ThreadTile<Kernel::TILE_SIZE> tile(block);
       functor(x_offset, tile);
     } else {
       functor(x_offset);
@@ -155,8 +190,7 @@ namespace contract
                          const size_t x_offset = item.get_group(0) * Kernel::TILES_PER_BLOCK;
                          Kernel functor(*args_buffer);
                          if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
-                           ThreadBlock block = item.get_sub_group();
-                           ThreadTile<Kernel::TILE_SIZE> tile(block, item);
+                           ThreadTile<Kernel::TILE_SIZE> tile(item);
                            functor(x_offset, tile);
                          } else {
                            functor(x_offset);

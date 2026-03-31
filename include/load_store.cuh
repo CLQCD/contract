@@ -55,16 +55,11 @@ namespace contract
   template <unsigned int BLOCK_SIZE, typename T, unsigned int TILE_SIZE>
   __device__ __forceinline__ void tile_reduce_store(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
-    using Reduce = WarpReduce<T, BLOCK_SIZE, TILE_SIZE>;
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
     const size_t offset = x_offset + gid;
     T *__restrict__ dst_ptr = static_cast<T *>(dst);
-#if defined(GPU_TARGET_SYCL)
-    T var = Reduce::plus(gid, src[tid], tile.sg);
-#else
-    T var = Reduce::plus(gid, src[tid]);
-#endif
+    T var = tile.plus<BLOCK_SIZE>(src[tid]);
     if constexpr (TILE_SIZE == 1) {
       dst_ptr[offset] = var;
     } else {
@@ -76,18 +71,12 @@ namespace contract
   __device__ __forceinline__ void tile_allreduce_vector(ThreadTile<TILE_SIZE> tile, T (*dst)[VECTOR_SIZE],
                                                         T (*src)[VECTOR_SIZE])
   {
-    using Reduce = WarpReduce<T, BLOCK_SIZE, TILE_SIZE>;
-    const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
     if constexpr (TILE_SIZE == 1) {
     } else {
 #pragma unroll
       for (int v = 0; v < VECTOR_SIZE; ++v) {
-#if defined(GPU_TARGET_SYCL)
-        T var = Reduce::plus(gid, src[tid][v], tile.sg);
-#else
-        T var = Reduce::plus(gid, src[tid][v]);
-#endif
+        T var = tile.plus<BLOCK_SIZE>(src[tid][v]);
 #if defined(GPU_TARGET_CUDA)
         dst[tid][v] = tile.shfl(var, 0);
 #elif defined(GPU_TARGET_HIP)
@@ -103,11 +92,7 @@ namespace contract
   __device__ __forceinline__ void tile_load(ThreadTile<TILE_SIZE> tile, T *dst, void *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
-#if defined(GPU_TARGET_SYCL)
-    const size_t offset = x_offset * TILE_SIZE + tile.item.get_local_id(0);
-#else
-    const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
-#endif
+    const size_t offset = x_offset * TILE_SIZE + tile.thread_idx();
     const T *__restrict__ src_ptr = static_cast<const T *>(src);
     dst[tid] = src_ptr[offset];
   }
@@ -116,11 +101,7 @@ namespace contract
   __device__ __forceinline__ void tile_store(ThreadTile<TILE_SIZE> tile, void *dst, T *src, size_t x_offset)
   {
     const auto tid = tile.thread_rank();
-#if defined(GPU_TARGET_SYCL)
-    const size_t offset = x_offset * TILE_SIZE + tile.item.get_local_id(0);
-#else
-    const size_t offset = x_offset * TILE_SIZE + threadIdx.x;
-#endif
+    const size_t offset = x_offset * TILE_SIZE + tile.thread_idx();
     T *__restrict__ dst_ptr = static_cast<T *>(dst);
     dst_ptr[offset] = src[tid];
   }

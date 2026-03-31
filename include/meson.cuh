@@ -66,7 +66,7 @@ namespace contract
 
     load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset, tile.item);
     load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset, tile.item);
-    sycl::group_barrier(tile.item.get_group());
+    tile.sync_threads();
 
     meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
@@ -82,7 +82,7 @@ namespace contract
 
     load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
     load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-    __syncthreads(); // Seems to be faster on P100
+    tile.sync_threads(); // Seems to be faster on P100
 
     meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
@@ -95,9 +95,7 @@ namespace contract
     constexpr MesonKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
-    {
-      meson_kernel(this->args, x_offset, tile);
-    }
+    { meson_kernel(this->args, x_offset, tile); }
   };
 
 }; // namespace contract
