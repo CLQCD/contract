@@ -47,7 +47,7 @@ namespace target
   void memcpy_to_symbol(const void *symbol, const void *src, size_t count, const char *file, int line)
   { sycl_error_check(sycl_queue.memcpy(const_cast<void *>(symbol), src, count).wait(), file, line); }
 
-  void launch_kernel(void (*func)(void), unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
+  void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
   {
     fprintf(stderr, "SYCL error in %s at line %d: launch_kernel not implemented\n", file, line);
     exit(-1);

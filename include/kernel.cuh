@@ -127,7 +127,14 @@ namespace contract
 #endif
   }
 
-  template <typename Args> static constexpr Args &get_args() { return *reinterpret_cast<Args *>(get_buffer()); }
+  template <typename Args> static constexpr Args &get_args()
+  {
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
+    return reinterpret_cast<Args &>(buffer);
+#elif defined(GPU_TARGET_SYCL)
+    return *reinterpret_cast<Args *>(get_buffer());
+#endif
+  }
 
   template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
     const Args &args;
@@ -169,8 +176,8 @@ namespace contract
     static_assert(sizeof(Args) <= constant_buffer_size(), "Parameter struct is greater than max constant buffer size");
     target_memcpy_to_symbol(get_buffer(), &args, sizeof(Args));
 #if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
-    auto func = kernel<Kernel, Args>;
-    target_launch_kernel(Kernel::TILE_SIZE, func, grid_dim, block_dim);
+    const void *func = reinterpret_cast<const void *>(kernel<Kernel, Args>);
+    target_launch_kernel(func, grid_dim, block_dim);
 #elif defined(GPU_TARGET_SYCL)
     sycl_queue
       .submit([&](sycl::handler &h) {
