@@ -2,8 +2,6 @@
 #include <sycl/sycl.hpp>
 #include <runtime_api.h>
 
-sycl::queue sycl_queue;
-
 #define sycl_error_check(_call, _file, _line)                                                                          \
   do {                                                                                                                 \
     try {                                                                                                              \
@@ -16,6 +14,7 @@ sycl::queue sycl_queue;
 
 namespace target
 {
+  sycl::queue sycl_queue;
   char *buffer = nullptr;
 
   void set_device(int device, const char *file, int line)

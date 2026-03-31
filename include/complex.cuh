@@ -1,8 +1,7 @@
 #pragma once
 
 #include <complex>
-
-#include "runtime_api.h"
+#include <kernel_define.cuh>
 
 namespace contract
 {

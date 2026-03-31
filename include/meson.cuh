@@ -51,44 +51,21 @@ namespace contract
 
   template <typename Args> __device__ void meson_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
-#if defined(GPU_TARGET_SYCL)
-    auto &propag_i
-      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
-        tile.item.get_group());
-    auto &propag_j
-      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
-        tile.item.get_group());
-    auto &correl = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns]>(
-      tile.item.get_group());
+    shared_memory(typename Args::T, propag_i, [TILE_SIZE][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, propag_j, [TILE_SIZE][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, correl, [TILE_SIZE][Ns * Ns]);
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
-    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset, tile.item);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset, tile.item);
-    tile.sync_threads();
+    tile_load_vector(tile, propag_i[gid], args.propag_i, x_offset);
+    tile_load_vector(tile, propag_j[gid], args.propag_j, x_offset);
+    tile.sync();
 
     meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
 
     tile_reduce_store<BLOCK_SIZE>(tile, args.correl, correl[gid], x_offset);
-#else
-    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
-
-    const auto gid = tile.meta_group_rank();
-    const auto tid = tile.thread_rank();
-
-    load_vector<Ns * Ns, Nc * Nc>(propag_i, args.propag_i, x_offset);
-    load_vector<Ns * Ns, Nc * Nc>(propag_j, args.propag_j, x_offset);
-    tile.sync_threads(); // Seems to be faster on P100
-
-    meson_local(correl[gid], propag_i[gid], propag_j[gid], args.gamma_ij, args.gamma_kl, tid);
-    tile.sync();
-
-    tile_reduce_store<BLOCK_SIZE>(tile, args.correl, correl[gid], x_offset);
-#endif
   }
 
   template <typename Args> struct MesonKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {

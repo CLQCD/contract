@@ -84,24 +84,10 @@ namespace contract
 
   template <typename Args> __device__ void baryon_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
-#if defined(GPU_TARGET_SYCL)
-    auto &propag_i
-      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
-        tile.item.get_group());
-    auto &propag_j
-      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
-        tile.item.get_group());
-    auto &propag_n
-      = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns][Nc * Nc]>(
-        tile.item.get_group());
-    auto &correl = *sycl::ext::oneapi::group_local_memory_for_overwrite<typename Args::T[TILES_PER_BLOCK][Ns * Ns]>(
-      tile.item.get_group());
-#else
-    __shared__ typename Args::T propag_i[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_j[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T propag_n[TILES_PER_BLOCK][Ns * Ns][Nc * Nc];
-    __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
-#endif
+    shared_memory(typename Args::T, propag_i, [TILES_PER_BLOCK][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, propag_j, [TILES_PER_BLOCK][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, propag_n, [TILES_PER_BLOCK][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, correl, [TILES_PER_BLOCK][Ns * Ns]);
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
@@ -130,9 +116,7 @@ namespace contract
     constexpr BaryonKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
-    {
-      baryon_kernel(this->args, x_offset, tile);
-    }
+    { baryon_kernel(this->args, x_offset, tile); }
   };
 
 }; // namespace contract
