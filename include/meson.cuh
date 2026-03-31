@@ -51,9 +51,9 @@ namespace contract
 
   template <typename Args> __device__ void meson_kernel(const Args &args, size_t x_offset, ThreadTile<TILE_SIZE> tile)
   {
-    shared_memory(typename Args::T, propag_i, [TILE_SIZE][Ns * Ns][Nc * Nc]);
-    shared_memory(typename Args::T, propag_j, [TILE_SIZE][Ns * Ns][Nc * Nc]);
-    shared_memory(typename Args::T, correl, [TILE_SIZE][Ns * Ns]);
+    shared_memory(typename Args::T, propag_i, [TILES_PER_BLOCK][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, propag_j, [TILES_PER_BLOCK][Ns * Ns][Nc * Nc]);
+    shared_memory(typename Args::T, correl, [TILES_PER_BLOCK][Ns * Ns]);
 
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();

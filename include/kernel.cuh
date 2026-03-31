@@ -10,11 +10,13 @@
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 #include <cub/cub.cuh>
-#define shared_memory(_type, _name, _shape) __shared__ _type _name##_shape
+namespace cg = cooperative_groups;
+#define shared_memory(_type, _name, _shape) __shared__ _type _name _shape
 #elif defined(GPU_TARGET_HIP)
 #include <hip/hip_runtime.h>
 #include <hip/hip_cooperative_groups.h>
 #include <rocprim/rocprim.hpp>
+namespace cg = cooperative_groups;
 #define shared_memory(_type, _name, _shape) __shared__ _type _name _shape
 #elif defined(GPU_TARGET_SYCL)
 #include <sycl/sycl.hpp>
@@ -55,10 +57,9 @@ namespace contract
 {
   template <unsigned int TILE_SIZE> struct ThreadTile {
 #if defined(GPU_TARGET_CUDA)
-    using cg = cooperative_groups;
     const cg::thread_block_tile<TILE_SIZE, cg::thread_block> tile;
 
-    __device__ __forceinline__ ThreadTile() : tile(cg::tiled_partition<TILE_SIZE>(cg::this_thread_block())) { }
+    __device__ __forceinline__ ThreadTile(cg::thread_block block) : tile(cg::tiled_partition<TILE_SIZE>(block)) { }
 
     __device__ __forceinline__ unsigned int thread_rank() const { return tile.thread_rank(); }
     __device__ __forceinline__ unsigned int meta_group_rank() const { return tile.meta_group_rank(); }
@@ -76,10 +77,9 @@ namespace contract
       return cub::WarpReduce<T, TILE_SIZE>(storage[meta_group_rank()]).Reduce(input, cuda::std::plus<>());
     }
 #elif defined(GPU_TARGET_HIP)
-    using cg = cooperative_groups;
     const cg::thread_block_tile<TILE_SIZE> tile;
 
-    __device__ __forceinline__ ThreadTile() : tile(cg::tiled_partition<TILE_SIZE>(cg::this_thread_block())) { }
+    __device__ __forceinline__ ThreadTile(cg::thread_block block) : tile(cg::tiled_partition<TILE_SIZE>(block)) { }
 
     __device__ __forceinline__ unsigned int thread_rank() const { return tile.thread_rank(); }
     __device__ __forceinline__ unsigned int meta_group_rank() const { return tile.meta_group_rank(); }
@@ -114,8 +114,7 @@ namespace contract
     const sycl::group<1> block;
     const sycl::sub_group tile;
 
-    __device__ __forceinline__ ThreadTile(sycl::nd_item<1> &block) :
-      block(block.get_group()), tile(block.get_sub_group())
+    __device__ __forceinline__ ThreadTile(sycl::nd_item<1> &item) : block(item.get_group()), tile(item.get_sub_group())
     {
     }
 
@@ -163,7 +162,7 @@ namespace contract
     Kernel functor(reinterpret_cast<Args &>(target::buffer));
 
     if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
-      ThreadTile<Kernel::TILE_SIZE> tile();
+      ThreadTile<Kernel::TILE_SIZE> tile(cg::this_thread_block());
       functor(x_offset, tile);
     } else {
       functor(x_offset);
