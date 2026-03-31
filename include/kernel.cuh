@@ -37,13 +37,14 @@ extern sycl::queue sycl_queue;
     return _v1 - _v2;                                                                                                  \
   }()
 
-namespace target {
+namespace target
+{
 #if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
   __constant__ char buffer[constant_buffer_size()];
 #elif defined(GPU_TARGET_SYCL)
   extern char *buffer;
 #endif
-};
+}; // namespace target
 
 namespace contract
 {
@@ -95,25 +96,9 @@ namespace contract
 #elif defined(GPU_TARGET_SYCL)
     static T plus(const unsigned int gid, T input, sycl::sub_group sg)
     {
-      for (unsigned int stride = TILE_SIZE / 2; stride > 0; stride /= 2) {
-        T other;
-        if constexpr (std::is_arithmetic_v<T>) {
-          other = sycl::shift_group_left(sg, input, stride);
-        } else if constexpr (sizeof(T) % sizeof(double) == 0) {
-          constexpr int N = sizeof(T) / sizeof(double);
-          double *src = reinterpret_cast<double *>(&input);
-          double *dst = reinterpret_cast<double *>(&other);
-          for (int i = 0; i < N; ++i) dst[i] = sycl::shift_group_left(sg, src[i], stride);
-        } else {
-          constexpr int N = sizeof(T) / sizeof(float);
-          static_assert(sizeof(T) % sizeof(float) == 0);
-          float *src = reinterpret_cast<float *>(&input);
-          float *dst = reinterpret_cast<float *>(&other);
-          for (int i = 0; i < N; ++i) dst[i] = sycl::shift_group_left(sg, src[i], stride);
-        }
-        input += other;
-      }
-      return input;
+      typename T::value_type real = sycl::reduce_over_group(sg, input.real(), sycl::plus<>());
+      typename T::value_type imag = sycl::reduce_over_group(sg, input.imag(), sycl::plus<>());
+      return {real, imag};
     }
 #endif
   };

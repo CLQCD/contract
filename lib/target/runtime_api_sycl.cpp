@@ -16,6 +16,8 @@ sycl::queue sycl_queue;
 
 namespace target
 {
+  char *buffer = nullptr;
+
   void set_device(int device, const char *file, int line)
   {
     auto devices = sycl::device::get_devices(sycl::info::device_type::gpu);
@@ -30,6 +32,7 @@ namespace target
     }
     sycl::property_list properties {sycl::property::queue::in_order {}, sycl::property::queue::enable_profiling {}};
     sycl_error_check(sycl_queue = sycl::queue(devices[device], properties), file, line);
+    if (buffer == nullptr) { buffer = static_cast<char *>(malloc(constant_buffer_size(), file, line)); }
   }
 
   void *malloc(size_t size, const char *file, int line)
@@ -42,11 +45,8 @@ namespace target
   void free(void *dev_ptr, const char *file, int line)
   { sycl_error_check(sycl::free(dev_ptr, sycl_queue), file, line); }
 
-  void memcpy_to_buffer(const void *src, size_t count, const char *file, int line)
-  {
-    if (buffer == nullptr) { buffer = static_cast<char *>(malloc(constant_buffer_size(), file, line)); }
-    sycl_error_check(sycl_queue.memcpy(reinterpret_cast<void *>(buffer), src, count).wait(), file, line);
-  }
+  void memcpy_to_symbol(const void *symbol, const void *src, size_t count, const char *file, int line)
+  { sycl_error_check(sycl_queue.memcpy(const_cast<void *>(symbol), src, count).wait(), file, line); }
 
   void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
   {

@@ -12,6 +12,7 @@ namespace contract
   };
 
   template <> struct alignas(16) Complex<double> {
+    typedef double value_type;
     double x, y;
 
     Complex() = default;
@@ -123,6 +124,7 @@ namespace contract
   };
 
   template <> struct alignas(8) Complex<float> {
+    typedef float value_type;
     float x, y;
 
     Complex() = default;
