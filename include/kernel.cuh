@@ -110,32 +110,6 @@ namespace contract
 #endif
   };
 
-  constexpr size_t constant_buffer_size() { return 32764; };
-
-#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
-  __constant__ char buffer[constant_buffer_size()];
-#elif defined(GPU_TARGET_SYCL)
-  static sycl::ext::oneapi::experimental::device_global<std::array<char, constant_buffer_size()>> buffer;
-#endif
-
-  static char *get_buffer()
-  {
-#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
-    return buffer;
-#elif defined(GPU_TARGET_SYCL)
-    return buffer.get().data();
-#endif
-  }
-
-  template <typename Args> static constexpr Args &get_args()
-  {
-#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
-    return reinterpret_cast<Args &>(buffer);
-#elif defined(GPU_TARGET_SYCL)
-    return *reinterpret_cast<Args *>(get_buffer());
-#endif
-  }
-
   template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
     const Args &args;
     static constexpr unsigned int BLOCK_SIZE = BLOCK_SIZE_;
@@ -152,9 +126,9 @@ namespace contract
     virtual __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE_> tile) = 0;
   };
 
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
   template <typename Kernel, typename Args> __global__ void kernel()
   {
-#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
     const size_t x_offset = blockIdx.x * Kernel::TILES_PER_BLOCK;
     Kernel functor(get_args<Args>());
 
@@ -165,26 +139,28 @@ namespace contract
     } else {
       functor(x_offset);
     }
-#endif
   }
+#endif
 
-  template <typename Kernel, typename Args> void launch_kernel(Args &args, size_t volume)
+  template <typename Kernel, typename Args> void launch_kernel_(Args &args, size_t volume, const char *file, int line)
   {
     unsigned int grid_dim = (volume * Kernel::TILE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
     unsigned int block_dim = Kernel::BLOCK_SIZE;
 
-    static_assert(sizeof(Args) <= constant_buffer_size(), "Parameter struct is greater than max constant buffer size");
-    target_memcpy_to_symbol(get_buffer(), &args, sizeof(Args));
+    static_assert(sizeof(Args) <= target::constant_buffer_size(),
+                  "Parameter struct is greater than max constant buffer size");
+    target::memcpy_to_buffer(&args, sizeof(Args), file, line);
 #if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
     const void *func = reinterpret_cast<const void *>(kernel<Kernel, Args>);
-    target_launch_kernel(func, grid_dim, block_dim);
+    target::launch_kernel(func, grid_dim, block_dim, file, line);
 #elif defined(GPU_TARGET_SYCL)
+    Args *args_buffer = reinterpret_cast<Args *>(target::buffer);
     sycl_queue
       .submit([&](sycl::handler &h) {
         h.parallel_for(sycl::nd_range<1>(sycl::range<1>(grid_dim * block_dim), sycl::range<1>(block_dim)),
                        [=](sycl::nd_item<1> item) [[sycl::reqd_sub_group_size(Kernel::TILE_SIZE)]] {
                          const size_t x_offset = item.get_group(0) * Kernel::TILES_PER_BLOCK;
-                         Kernel functor(get_args<Args>());
+                         Kernel functor(*args_buffer);
                          if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
                            ThreadBlock block = item.get_sub_group();
                            ThreadTile<Kernel::TILE_SIZE> tile(block, item);
@@ -199,3 +175,5 @@ namespace contract
   }
 
 } // namespace contract
+
+#define contract_launch_kernel(Kernel, args, volume) contract::launch_kernel_<Kernel>(args, volume, __FILE__, __LINE__)

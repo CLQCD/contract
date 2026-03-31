@@ -1,4 +1,4 @@
-#include <baryon_v3.cuh>
+#include <baryon.cuh>
 #include <baryon.h>
 
 namespace baryon
@@ -15,7 +15,7 @@ namespace baryon
     using Args = contract::BaryonArgs<double, CONTRACT, GAMMA_MN>;
     using Kernel = contract::BaryonKernel<Args>;
     Args args(correl, propag_i, propag_j, propag_n, gamma_ij, gamma_kl);
-    contract::launch_kernel<Kernel>(args, volume);
+    contract_launch_kernel(Kernel, args, volume);
     return;
   }
 

@@ -14,7 +14,7 @@ namespace diquark
     using Args = contract::DiquarkArgs<GAMMA_IJ, double>;
     using Kernel = contract::DiquarkKernel<Args>;
     Args args(diquark, propag_i, propag_j, gamma_kl);
-    contract::launch_kernel<Kernel>(args, volume);
+    contract_launch_kernel(Kernel, args, volume);
     return;
   }
 

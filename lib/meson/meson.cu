@@ -13,7 +13,7 @@ namespace meson
     using Args = contract::MesonArgs<double>;
     using Kernel = contract::MesonKernel<Args>;
     Args args(correl, propag_i, propag_j, gamma_ij, gamma_kl);
-    contract::launch_kernel<Kernel>(args, volume);
+    contract_launch_kernel(Kernel, args, volume);
     return;
   }
 } // namespace meson

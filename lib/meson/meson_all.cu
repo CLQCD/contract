@@ -13,7 +13,7 @@ namespace meson_all_source
     using Args = contract::MesonAllArgs<double>;
     using Kernel = contract::MesonAllSourceKernel<Args>;
     Args args(correl, propag_i, propag_j, gamma_ij);
-    contract::launch_kernel<Kernel>(args, volume);
+    contract_launch_kernel(Kernel, args, volume);
   }
 } // namespace meson_all_source
 
@@ -29,6 +29,6 @@ namespace meson_all_sink
     using Args = contract::MesonAllArgs<double>;
     using Kernel = contract::MesonAllSinkKernel<Args>;
     Args args(correl, propag_i, propag_j, gamma_kl);
-    contract::launch_kernel<Kernel>(args, volume);
+    contract_launch_kernel(Kernel, args, volume);
   }
 } // namespace meson_all_sink

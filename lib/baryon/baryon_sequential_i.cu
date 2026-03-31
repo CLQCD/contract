@@ -15,7 +15,7 @@ namespace baryon_sequential_i
     using Args = contract::BaryonSequentialArgs<double, CONTRACT, GAMMA_MN>;
     using Kernel = contract::BaryonSequentialIKernel<Args>;
     Args args(propag_i, propag_j, propag_n, gamma_ij, gamma_kl);
-    contract::launch_kernel<Kernel>(args, volume);
+    contract_launch_kernel(Kernel, args, volume);
 
     return;
   }
