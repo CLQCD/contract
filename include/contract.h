@@ -25,10 +25,6 @@ void baryon_general_two_point(void *correl, void *propag_i, void *propag_j, void
 void baryon_sequential_two_point(void *propag_i, void *propag_j, void *propag_n, BaryonContractType contract_type,
                                  BaryonSequentialType sequential_type, size_t volume, int gamma_ij, int gamma_kl,
                                  int gamma_mn);
-#ifndef GPU_TARGET_SYCL
-void baryon_two_point_v2(void *correl, void *propag_i, void *propag_j, void *propag_m, BaryonContractType contract_type,
-                         unsigned long volume, int gamma_ij, int gamma_kl, int gamma_mn);
-#endif
 
 #ifdef __cplusplus
 }

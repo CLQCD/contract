@@ -26,14 +26,10 @@ namespace target
   void free(void *dev_ptr, const char *file, int line) { hip_error_check(hipFree(dev_ptr), file, line); }
 
   void memcpy_to_symbol(const void *symbol, const void *src, size_t count, const char *file, int line)
-  {
-    hip_error_check(hipMemcpyToSymbol(symbol, src, count), file, line);
-  }
+  { hip_error_check(hipMemcpyToSymbol(symbol, src, count), file, line); }
 
-  void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
-  {
-    hip_error_check(hipLaunchKernel(func, dim3(grid_dim), dim3(block_dim), {}, 0, 0), file, line);
-  }
+  void launch_kernel(void (*func)(void), unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
+  { hip_error_check(hipLaunchKernel(func, dim3(grid_dim), dim3(block_dim), {}, 0, 0), file, line); }
 
   event_t event_create(const char *file, int line)
   {
@@ -45,19 +41,13 @@ namespace target
   }
 
   void event_destory(event_t event, const char *file, int line)
-  {
-    hip_error_check(hipEventDestroy(static_cast<hipEvent_t>(event.event)), file, line);
-  }
+  { hip_error_check(hipEventDestroy(static_cast<hipEvent_t>(event.event)), file, line); }
 
   void event_record(event_t event, const char *file, int line)
-  {
-    hip_error_check(hipEventRecord(static_cast<hipEvent_t>(event.event)), file, line);
-  }
+  { hip_error_check(hipEventRecord(static_cast<hipEvent_t>(event.event)), file, line); }
 
   void event_synchronize(event_t event, const char *file, int line)
-  {
-    hip_error_check(hipEventSynchronize(static_cast<hipEvent_t>(event.event)), file, line);
-  }
+  { hip_error_check(hipEventSynchronize(static_cast<hipEvent_t>(event.event)), file, line); }
 
   float event_elapsed_time(event_t start, event_t end, const char *file, int line)
   {

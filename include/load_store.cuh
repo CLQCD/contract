@@ -8,9 +8,7 @@ namespace contract
 
   template <typename T, unsigned int TILE_SIZE>
   __device__ __forceinline__ T tile_shfl_down(ThreadTile<TILE_SIZE> tile, T var, unsigned int delta)
-  {
-    return tile.shfl_down(var, delta);
-  }
+  { return tile.shfl_down(var, delta); }
 
   template <typename F, unsigned int TILE_SIZE>
   __device__ __forceinline__ Complex<F> tile_shfl_down(ThreadTile<TILE_SIZE> tile, Complex<F> var, unsigned int delta)
@@ -22,9 +20,7 @@ namespace contract
 
   template <typename T, unsigned int TILE_SIZE>
   __device__ __forceinline__ T tile_shfl(ThreadTile<TILE_SIZE> tile, T var, int src)
-  {
-    return tile.shfl(var, src);
-  }
+  { return tile.shfl(var, src); }
 
   template <typename F, unsigned int TILE_SIZE>
   __device__ __forceinline__ Complex<F> tile_shfl(ThreadTile<TILE_SIZE> tile, Complex<F> var, int src)
@@ -50,6 +46,8 @@ namespace contract
       dst[tid] = tile.shfl(var, 0);
 #elif defined(GPU_TARGET_HIP)
       dst[tid] = tile_shfl(tile, var, 0);
+#elif defined(GPU_TARGET_SYCL)
+      dst[tid] = tile.shfl(var, 0);
 #endif
     }
   }
@@ -85,11 +83,17 @@ namespace contract
     } else {
 #pragma unroll
       for (int v = 0; v < VECTOR_SIZE; ++v) {
+#if defined(GPU_TARGET_SYCL)
+        T var = Reduce::plus(gid, src[tid][v], tile.sg);
+#else
         T var = Reduce::plus(gid, src[tid][v]);
+#endif
 #if defined(GPU_TARGET_CUDA)
         dst[tid][v] = tile.shfl(var, 0);
 #elif defined(GPU_TARGET_HIP)
         dst[tid][v] = tile_shfl(tile, var, 0);
+#elif defined(GPU_TARGET_SYCL)
+        dst[tid][v] = tile.shfl(var, 0);
 #endif
       }
     }

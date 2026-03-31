@@ -8,16 +8,15 @@
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 #include <cub/cub.cuh>
+namespace cg = cooperative_groups;
 #elif defined(GPU_TARGET_HIP)
 #include <hip/hip_runtime.h>
 #include <hip/hip_cooperative_groups.h>
 #include <rocprim/rocprim.hpp>
+namespace cg = cooperative_groups;
 #elif defined(GPU_TARGET_SYCL)
 #include <sycl/sycl.hpp>
-#endif
-
-#if !defined(GPU_TARGET_SYCL)
-namespace cg = cooperative_groups;
+extern sycl::queue sycl_queue;
 #endif
 
 #define for_abc_def                                                                                                    \
@@ -40,10 +39,17 @@ namespace cg = cooperative_groups;
 
 namespace contract
 {
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
+  using ThreadBlock = cg::thread_block;
+#elif defined(GPU_TARGET_SYCL)
+  using ThreadBlock = sycl::sub_group;
+#endif
 
-#if defined(GPU_TARGET_SYCL)
-
-  // ============ SYCL ThreadTile wrapper ============
+#if defined(GPU_TARGET_CUDA)
+  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE, ThreadBlock>;
+#elif defined(GPU_TARGET_HIP)
+  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE>;
+#elif defined(GPU_TARGET_SYCL)
   template <unsigned int TILE_SIZE> struct ThreadTile {
     sycl::sub_group sg;
     sycl::nd_item<1> item;
@@ -54,21 +60,31 @@ namespace contract
     unsigned int meta_group_rank() const { return sg.get_group_id()[0]; }
 
     template <typename T> T shfl(T val, unsigned int src) const { return sycl::select_from_group(sg, val, src); }
-
     template <typename T> T shfl_down(T val, unsigned int delta) const
-    {
-      return sycl::shift_group_left(sg, val, delta);
-    }
+    { return sycl::shift_group_left(sg, val, delta); }
 
     void sync() const { sycl::group_barrier(sg); }
   };
+#endif
 
-  using ThreadBlock = sycl::group<1>;
-
-  // ============ SYCL WarpReduce via sub_group shuffle ============
   template <typename T, unsigned int BLOCK_SIZE, unsigned int TILE_SIZE> struct WarpReduce {
     WarpReduce() = default;
 
+#if defined(GPU_TARGET_CUDA)
+    static __device__ __forceinline__ T plus(const unsigned int gid, T input)
+    {
+      __shared__ typename cub::WarpReduce<T, TILE_SIZE>::TempStorage storage[BLOCK_SIZE / TILE_SIZE];
+      return cub::WarpReduce<T, TILE_SIZE>(storage[gid]).Reduce(input, cuda::std::plus<>());
+    }
+#elif defined(GPU_TARGET_HIP)
+    static __device__ __forceinline__ T plus(const unsigned int gid, T input)
+    {
+      __shared__ typename rocprim::warp_reduce<T, TILE_SIZE>::storage_type storage[BLOCK_SIZE / TILE_SIZE];
+      T output;
+      rocprim::warp_reduce<T, TILE_SIZE>().reduce(input, output, storage[gid], rocprim::plus<T>());
+      return output;
+    }
+#elif defined(GPU_TARGET_SYCL)
     static T plus(const unsigned int gid, T input, sycl::sub_group sg)
     {
       for (unsigned int stride = TILE_SIZE / 2; stride > 0; stride /= 2) {
@@ -91,100 +107,27 @@ namespace contract
       }
       return input;
     }
-
-    // Overload that matches calling convention from tile_reduce_store
-    static T plus(const unsigned int gid, T input) { return input; /* fallback, should not be used */ }
+#endif
   };
 
   constexpr size_t constant_buffer_size() { return 32764; };
 
-  template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
-    const Args &args;
-    static constexpr unsigned int BLOCK_SIZE = BLOCK_SIZE_;
-    static constexpr unsigned int TILE_SIZE = TILE_SIZE_;
-    static constexpr unsigned int TILES_PER_BLOCK = BLOCK_SIZE_ / TILE_SIZE_;
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
+  __constant__ char buffer[constant_buffer_size()];
+#elif defined(GPU_TARGET_SYCL)
+  static sycl::ext::oneapi::experimental::device_global<std::array<char, constant_buffer_size()>> buffer;
+#endif
 
-    constexpr BaseKernel(const Args &args) : args(args) { }
-  };
-
-  template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_>
-  struct TileKernel : public BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_> {
-    constexpr TileKernel(const Args &args) : BaseKernel<Args, BLOCK_SIZE_, TILE_SIZE_>(args) { }
-
-    // Non-virtual in SYCL — dispatched statically via templates
-    void operator()(size_t x_offset, ThreadTile<TILE_SIZE_> tile) { }
-  };
-
-  template <typename Kernel, typename Args> void launch_kernel(Args &args, size_t volume)
+  static char *get_buffer()
   {
-    unsigned int grid = (volume * Kernel::TILE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
-    unsigned int block = Kernel::BLOCK_SIZE;
-    unsigned int total = grid * block;
-
-    auto &queue = get_sycl_queue();
-
-    // Copy args to USM device memory
-    Args *dev_args = sycl::malloc_device<Args>(1, queue);
-    queue.memcpy(dev_args, &args, sizeof(Args)).wait();
-
-    constexpr unsigned int TILE = Kernel::TILE_SIZE;
-    constexpr unsigned int TILES_PER_BLOCK = Kernel::TILES_PER_BLOCK;
-
-    queue
-      .submit([&](sycl::handler &h) {
-        h.parallel_for(sycl::nd_range<1>(sycl::range<1>(total), sycl::range<1>(block)),
-                       [=](sycl::nd_item<1> item) [[sycl::reqd_sub_group_size(TILE)]] {
-                         const size_t x_offset = item.get_group(0) * TILES_PER_BLOCK;
-                         sycl::sub_group sg = item.get_sub_group();
-                         ThreadTile<TILE> tile(sg, item);
-
-                         Kernel functor(*dev_args);
-                         functor(x_offset, tile);
-                       });
-      })
-      .wait();
-
-    sycl::free(dev_args, queue);
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
+    return buffer;
+#elif defined(GPU_TARGET_SYCL)
+    return buffer.get().data();
+#endif
   }
 
-#else // CUDA / HIP
-
-  using ThreadBlock = cg::thread_block;
-#if defined(GPU_TARGET_CUDA)
-  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE, ThreadBlock>;
-#elif defined(GPU_TARGET_HIP)
-  template <unsigned int TILE_SIZE> using ThreadTile = cg::thread_block_tile<TILE_SIZE>;
-#endif
-
-  template <typename T, unsigned int BLOCK_SIZE, unsigned int TILE_SIZE> struct WarpReduce {
-#if defined(GPU_TARGET_CUDA)
-    using TargetWarpReduce = cub::WarpReduce<T, TILE_SIZE>;
-    using TargetWarpReduceStorage = typename cub::WarpReduce<T, TILE_SIZE>::TempStorage;
-#elif defined(GPU_TARGET_HIP)
-    using TargetWarpReduce = rocprim::warp_reduce<T, TILE_SIZE>;
-    using TargetWarpReduceStorage = typename rocprim::warp_reduce<T, TILE_SIZE>::storage_type;
-#endif
-
-    WarpReduce() = default;
-
-    static __device__ __forceinline__ T plus(const unsigned int gid, T input)
-    {
-      __shared__ TargetWarpReduceStorage storage[BLOCK_SIZE / TILE_SIZE];
-#if defined(GPU_TARGET_CUDA)
-      return TargetWarpReduce(storage[gid]).Reduce(input, cuda::std::plus<>());
-#elif defined(GPU_TARGET_HIP)
-      T output;
-      TargetWarpReduce().reduce(input, output, storage[gid], rocprim::plus<T>());
-      return output;
-#endif
-    }
-  };
-
-  constexpr size_t constant_buffer_size() { return 32764; };
-
-  __constant__ char buffer[constant_buffer_size()];
-
-  template <typename Args> constexpr Args &get_args() { return reinterpret_cast<Args &>(buffer); }
+  template <typename Args> static constexpr Args &get_args() { return *reinterpret_cast<Args *>(get_buffer()); }
 
   template <typename Args, unsigned int BLOCK_SIZE_, unsigned int TILE_SIZE_> struct BaseKernel {
     const Args &args;
@@ -204,6 +147,7 @@ namespace contract
 
   template <typename Kernel, typename Args> __global__ void kernel()
   {
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
     const size_t x_offset = blockIdx.x * Kernel::TILES_PER_BLOCK;
     Kernel functor(get_args<Args>());
 
@@ -214,19 +158,37 @@ namespace contract
     } else {
       functor(x_offset);
     }
+#endif
   }
 
   template <typename Kernel, typename Args> void launch_kernel(Args &args, size_t volume)
   {
-    unsigned int grid = (volume * Kernel::TILE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
-    unsigned int block = Kernel::BLOCK_SIZE;
+    unsigned int grid_dim = (volume * Kernel::TILE_SIZE + Kernel::BLOCK_SIZE - 1) / Kernel::BLOCK_SIZE;
+    unsigned int block_dim = Kernel::BLOCK_SIZE;
 
     static_assert(sizeof(Args) <= constant_buffer_size(), "Parameter struct is greater than max constant buffer size");
-    target_memcpy_to_symbol(buffer, &args, sizeof(Args));
-    const void *func = reinterpret_cast<const void *>(kernel<Kernel, Args>);
-    target_launch_kernel(func, grid, block);
+    target_memcpy_to_symbol(get_buffer(), &args, sizeof(Args));
+#if defined(GPU_TARGET_CUDA) || defined(GPU_TARGET_HIP)
+    auto func = kernel<Kernel, Args>;
+    target_launch_kernel(Kernel::TILE_SIZE, func, grid_dim, block_dim);
+#elif defined(GPU_TARGET_SYCL)
+    sycl_queue
+      .submit([&](sycl::handler &h) {
+        h.parallel_for(sycl::nd_range<1>(sycl::range<1>(grid_dim * block_dim), sycl::range<1>(block_dim)),
+                       [=](sycl::nd_item<1> item) [[sycl::reqd_sub_group_size(Kernel::TILE_SIZE)]] {
+                         const size_t x_offset = item.get_group(0) * Kernel::TILES_PER_BLOCK;
+                         Kernel functor(get_args<Args>());
+                         if constexpr (std::is_base_of_v<TileKernel<Args, Kernel::BLOCK_SIZE, Kernel::TILE_SIZE>, Kernel>) {
+                           ThreadBlock block = item.get_sub_group();
+                           ThreadTile<Kernel::TILE_SIZE> tile(block, item);
+                           functor(x_offset, tile);
+                         } else {
+                           functor(x_offset);
+                         }
+                       });
+      })
+      .wait();
+#endif
   }
-
-#endif // GPU_TARGET_SYCL
 
 } // namespace contract

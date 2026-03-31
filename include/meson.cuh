@@ -88,6 +88,7 @@ namespace contract
     tile.sync();
 
     tile_reduce_store<BLOCK_SIZE>(tile, args.correl, correl[gid], x_offset);
+#endif
   }
 
   template <typename Args> struct MesonKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {

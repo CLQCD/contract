@@ -3,13 +3,22 @@
 #include <stdlib.h>
 
 #if defined(GPU_TARGET_SYCL)
-#include <sycl/sycl.hpp>
-sycl::queue &get_sycl_queue();
+#ifndef __global__
+#define __global__
+#endif
+#ifndef __host__
+#define __host__
+#endif
+#ifndef __device__
+#define __device__
+#endif
+#ifndef __forceinline__
+#define __forceinline__ inline __attribute__((always_inline))
+#endif
 #endif
 
 namespace target
 {
-
   struct event_t {
     void *event;
   };
@@ -18,7 +27,7 @@ namespace target
   void *malloc(size_t size, const char *file, int line);
   void free(void *dev_ptr, const char *file, int line);
   void memcpy_to_symbol(const void *symbol, const void *src, size_t count, const char *file, int line);
-  void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line);
+  void launch_kernel(void (*func)(void), unsigned int grid_dim, unsigned int block_dim, const char *file, int line);
   event_t event_create(const char *file, int line);
   void event_destory(event_t event, const char *file, int line);
   void event_record(event_t event, const char *file, int line);
