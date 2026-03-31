@@ -305,37 +305,22 @@ namespace contract
   template <typename Args> struct BaryonSequentialIKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialIKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
-#if !defined(GPU_TARGET_SYCL)
-      override
-#endif
-    {
-      baryon_sequential_i_kernel(this->args, x_offset, tile);
-    }
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+    { baryon_sequential_i_kernel(this->args, x_offset, tile); }
   };
 
   template <typename Args> struct BaryonSequentialJKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialJKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
-#if !defined(GPU_TARGET_SYCL)
-      override
-#endif
-    {
-      baryon_sequential_j_kernel(this->args, x_offset, tile);
-    }
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+    { baryon_sequential_j_kernel(this->args, x_offset, tile); }
   };
 
   template <typename Args> struct BaryonSequentialNKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr BaryonSequentialNKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
-#if !defined(GPU_TARGET_SYCL)
-      override
-#endif
-    {
-      baryon_sequential_n_kernel(this->args, x_offset, tile);
-    }
+    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
+    { baryon_sequential_n_kernel(this->args, x_offset, tile); }
   };
 
 }; // namespace contract

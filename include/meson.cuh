@@ -94,11 +94,7 @@ namespace contract
   template <typename Args> struct MesonKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-#if defined(GPU_TARGET_SYCL)
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
-#else
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
-#endif
     {
       meson_kernel(this->args, x_offset, tile);
     }

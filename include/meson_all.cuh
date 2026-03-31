@@ -86,11 +86,7 @@ namespace contract
   template <typename Args> struct MesonAllSourceKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonAllSourceKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-#if defined(GPU_TARGET_SYCL)
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
-#else
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
-#endif
     {
       meson_all_source_kernel(this->args, x_offset, tile);
     }
@@ -133,11 +129,7 @@ namespace contract
   template <typename Args> struct MesonAllSinkKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
     constexpr MesonAllSinkKernel(const Args &args) : TileKernel<Args, BLOCK_SIZE, TILE_SIZE>(args) { }
 
-#if defined(GPU_TARGET_SYCL)
-    __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile)
-#else
     __device__ __forceinline__ void operator()(size_t x_offset, ThreadTile<TILE_SIZE> tile) override
-#endif
     {
       meson_all_sink_kernel(this->args, x_offset, tile);
     }
