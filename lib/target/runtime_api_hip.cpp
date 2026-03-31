@@ -13,8 +13,6 @@
 
 namespace target
 {
-  __constant__ char buffer[constant_buffer_size()];
-
   void set_device(int device, const char *file, int line) { hip_error_check(hipSetDevice(device), file, line); }
 
   void *malloc(size_t size, const char *file, int line)
@@ -26,8 +24,8 @@ namespace target
 
   void free(void *dev_ptr, const char *file, int line) { hip_error_check(hipFree(dev_ptr), file, line); }
 
-  void memcpy_to_buffer(const void *src, size_t count, const char *file, int line)
-  { hip_error_check(hipMemcpyToSymbol(buffer, src, count), file, line); }
+  void memcpy_to_symbol(void *symbol, const void *src, size_t count, const char *file, int line)
+  { hip_error_check(hipMemcpyToSymbol(symbol, src, count), file, line); }
 
   void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
   { hip_error_check(hipLaunchKernel(func, dim3(grid_dim), dim3(block_dim), {}, 0, 0), file, line); }

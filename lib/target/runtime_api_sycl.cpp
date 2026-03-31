@@ -16,8 +16,6 @@ sycl::queue sycl_queue;
 
 namespace target
 {
-  char *buffer = nullptr;
-
   void set_device(int device, const char *file, int line)
   {
     auto devices = sycl::device::get_devices(sycl::info::device_type::gpu);
