@@ -85,17 +85,7 @@ namespace contract
           propag_n[idx][ad] = gamma_ij_data * gamma_kl_data * tmp_color;
         }
         tile.sync();
-#pragma unroll
-        for (int stride = TILE_SIZE / 2; stride > 0; stride /= 2) {
-          if (idx < stride) {
-            for_a_d { propag_n[idx][ad] += propag_n[idx + stride][ad]; }
-          }
-          tile.sync();
-        }
-        if (idx > 0) {
-          for_a_d { propag_n[idx][ad] = propag_n[0][ad]; }
-        }
-        tile.sync();
+        tile_allreduce_vector<BLOCK_SIZE>(tile, propag_n, propag_n);
         int nm = idx;
         int n = nm / Ns;
         int m = nm % Ns;

@@ -103,8 +103,6 @@ namespace contract
     __shared__ typename Args::T correl[TILES_PER_BLOCK][Ns * Ns];
 #endif
 
-    using Reduce = WarpReduce<typename Args::T, BLOCK_SIZE, TILE_SIZE>;
-
     const auto gid = tile.meta_group_rank();
     const auto tid = tile.thread_rank();
 
@@ -125,7 +123,7 @@ namespace contract
                                                  args.gamma_ij, args.gamma_kl, tid);
     tile.sync();
 
-    tile_reduce_store<Reduce>(tile, args.correl, correl[gid], x_offset);
+    tile_reduce_store<BLOCK_SIZE>(tile, args.correl, correl[gid], x_offset);
   }
 
   template <typename Args> struct BaryonKernel : public TileKernel<Args, BLOCK_SIZE, TILE_SIZE> {
