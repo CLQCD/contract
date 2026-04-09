@@ -1,6 +1,5 @@
 #pragma once
 
-#if defined(GPU_TARGET_SYCL)
 #ifndef __global__
 #define __global__
 #endif
@@ -12,5 +11,4 @@
 #endif
 #ifndef __forceinline__
 #define __forceinline__ inline __attribute__((always_inline))
-#endif
 #endif

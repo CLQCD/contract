@@ -24,7 +24,7 @@ namespace target
 
   void free(void *dev_ptr, const char *file, int line) { hip_error_check(hipFree(dev_ptr), file, line); }
 
-  void memcpy_to_symbol(void *symbol, const void *src, size_t count, const char *file, int line)
+  void memcpy_to_symbol(const void *symbol, const void *src, size_t count, const char *file, int line)
   { hip_error_check(hipMemcpyToSymbol(symbol, src, count), file, line); }
 
   void launch_kernel(const void *func, unsigned int grid_dim, unsigned int block_dim, const char *file, int line)
