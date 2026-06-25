@@ -39,9 +39,9 @@ namespace contract
     int i = il / Ns;
     int l = il % Ns;
     int j = gamma_index(gamma_ij, i);
-    T gamma_ij_data = gamma_gamma5_data<true, F>(gamma_ij, i); // We actually need ji
+    T gamma_ij_data = gamma_gamma5_data<F, true>(gamma_ij, i); // We actually need ji
     int k = gamma_index(gamma_kl, l);
-    T gamma_kl_data = gamma_gamma5_data<true, F>(gamma_kl, l);
+    T gamma_kl_data = gamma_gamma5_data<F, false>(gamma_kl, k);
     int ik = i * Ns + k;
     int jl = j * Ns + l;
     T tmp = 0;

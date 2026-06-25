@@ -47,9 +47,9 @@ namespace contract
     int i = il / Ns;
     int l = il % Ns;
     int j = gamma_index(gamma_ij, i);
-    T gamma_ij_data = gamma_data<SWAP_IJ, F>(gamma_ij, i);
+    T gamma_ij_data = gamma_data<F, SWAP_IJ>(gamma_ij, i);
     int k = gamma_index(gamma_kl, l);
-    T gamma_kl_data = gamma_data<!SWAP_KL, F>(gamma_kl, l);
+    T gamma_kl_data = gamma_data<F, SWAP_KL>(gamma_kl, k);
     int ik = i * Ns + k;
     int jl = j * Ns + l;
     if constexpr (CONTRACT == IK_JL_NM || CONTRACT == IL_JK_NM) {
@@ -60,7 +60,7 @@ namespace contract
         for (int n = 0; n < Ns; ++n) {
           int m = gamma_index(GAMMA_MN, n);
           int nm = n * Ns + m;
-          tmp += gamma_data<true, F>(GAMMA_MN, n) * propag_n[nm][ad];
+          tmp += gamma_data<F>(GAMMA_MN, m) * propag_n[nm][ad];
         }
         tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jl]);
         correl[idx] += gamma_ij_data * gamma_kl_data * tmp * tmp_color;
@@ -75,7 +75,7 @@ namespace contract
           int jm = j * Ns + m;
           int nl = n * Ns + l;
           tmp_color = epsilon_abc_def(propag_j[jm], propag_n[nl]);
-          tmp += gamma_data<true, F>(GAMMA_MN, n) * tmp_color;
+          tmp += gamma_data<F>(GAMMA_MN, m) * tmp_color;
         }
         correl[idx] += gamma_ij_data * gamma_kl_data * tmp * propag_i[ik][ad];
       }

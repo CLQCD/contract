@@ -79,7 +79,8 @@ namespace contract
     return -1;
   }
 
-  template <bool TRANSPOSE, typename F> __device__ __forceinline__ const Complex<F> gamma_data(int gamma, int row)
+  template <typename F, bool TRANSPOSE = false>
+  __device__ __forceinline__ const Complex<F> gamma_data(int gamma, int row)
   {
     const Complex<F> I(0.0, 1.0);
     if constexpr (!TRANSPOSE) {
@@ -126,54 +127,7 @@ namespace contract
     return 0;
   }
 
-  template <bool TRANSPOSE, typename F> __device__ __forceinline__ const Complex<F> gamma_data_old(int gamma, int row)
-  {
-    const Complex<F> I(0.0, 1.0);
-    if constexpr (!TRANSPOSE) {
-      switch (gamma) {
-      case 0: return 1; break;
-      case 1: return (row == 0 || row == 1) ? I : -I; break;
-      case 2: return (row == 0 || row == 3) ? -1 : 1; break;
-      case 3: return (row == 0 || row == 2) ? -I : I; break;
-      case 4: return (row == 0 || row == 3) ? I : -I; break;
-      case 5: return (row == 0 || row == 2) ? -1 : 1; break;
-      case 6: return -I; break;
-      case 7: return (row == 0 || row == 1) ? 1 : -1; break;
-      case 8: return 1; break;
-      case 9: return (row == 0 || row == 1) ? I : -I; break;
-      case 10: return (row == 0 || row == 3) ? -1 : 1; break;
-      case 11: return (row == 0 || row == 2) ? -I : I; break;
-      case 12: return (row == 0 || row == 3) ? I : -I; break;
-      case 13: return (row == 0 || row == 2) ? -1 : 1; break;
-      case 14: return -I; break;
-      case 15: return (row == 0 || row == 1) ? 1 : -1; break;
-      default: break;
-      }
-    } else {
-      switch (gamma) {
-      case 0: return 1; break;
-      case 1: return (row == 0 || row == 1) ? -I : I; break;
-      case 2: return (row == 0 || row == 3) ? -1 : 1; break;
-      case 3: return (row == 0 || row == 2) ? -I : I; break;
-      case 4: return (row == 0 || row == 3) ? -I : I; break;
-      case 5: return (row == 0 || row == 2) ? 1 : -1; break;
-      case 6: return -I; break;
-      case 7: return (row == 0 || row == 1) ? -1 : 1; break;
-      case 8: return 1; break;
-      case 9: return (row == 0 || row == 1) ? I : -I; break;
-      case 10: return (row == 0 || row == 3) ? 1 : -1; break;
-      case 11: return (row == 0 || row == 2) ? -I : I; break;
-      case 12: return (row == 0 || row == 3) ? I : -I; break;
-      case 13: return (row == 0 || row == 2) ? 1 : -1; break;
-      case 14: return -I; break;
-      case 15: return (row == 0 || row == 1) ? 1 : -1; break;
-      default: break;
-      }
-    }
-    return 0;
-  }
-
-  template <bool TRANSPOSE, typename F>
+  template <typename F, bool TRANSPOSE = false>
   __device__ __forceinline__ const Complex<F> gamma_data(int gamma, int row, int col)
   {
     const Complex<F> I(0.0, 1.0);
@@ -222,7 +176,7 @@ namespace contract
     return 0;
   }
 
-  template <bool TRANSPOSE, typename F>
+  template <typename F, bool TRANSPOSE = false>
   __device__ __forceinline__ const Complex<F> gamma_gamma5_data(int gamma, int row)
   {
     const Complex<F> I(0.0, 1.0);
@@ -270,54 +224,6 @@ namespace contract
     return 0;
   }
 
-  template <bool TRANSPOSE, typename F>
-  __device__ __forceinline__ const Complex<F> gamma_gamma5_data_old(int gamma, int row)
-  {
-    const Complex<F> I(0.0, 1.0);
-    if constexpr (!TRANSPOSE) {
-      switch (gamma) {
-      case 0: return (row == 0 || row == 1) ? 1 : -1; break;
-      case 1: return -I; break;
-      case 2: return (row == 0 || row == 2) ? 1 : -1; break;
-      case 3: return (row == 0 || row == 3) ? -I : I; break;
-      case 4: return (row == 0 || row == 2) ? -I : I; break;
-      case 5: return (row == 0 || row == 3) ? -1 : 1; break;
-      case 6: return (row == 0 || row == 1) ? -I : I; break;
-      case 7: return -1; break;
-      case 8: return (row == 0 || row == 1) ? -1 : 1; break;
-      case 9: return I; break;
-      case 10: return (row == 0 || row == 2) ? -1 : 1; break;
-      case 11: return (row == 0 || row == 3) ? I : -I; break;
-      case 12: return (row == 0 || row == 2) ? I : -I; break;
-      case 13: return (row == 0 || row == 3) ? 1 : -1; break;
-      case 14: return (row == 0 || row == 1) ? I : -I; break;
-      case 15: return 1; break;
-      default: break;
-      }
-    } else {
-      switch (gamma) {
-      case 0: return (row == 0 || row == 1) ? 1 : -1; break;
-      case 1: return I; break;
-      case 2: return (row == 0 || row == 2) ? 1 : -1; break;
-      case 3: return (row == 0 || row == 3) ? -I : I; break;
-      case 4: return (row == 0 || row == 2) ? I : -I; break;
-      case 5: return (row == 0 || row == 3) ? 1 : -1; break;
-      case 6: return (row == 0 || row == 1) ? -I : I; break;
-      case 7: return 1; break;
-      case 8: return (row == 0 || row == 1) ? -1 : 1; break;
-      case 9: return I; break;
-      case 10: return (row == 0 || row == 2) ? 1 : -1; break;
-      case 11: return (row == 0 || row == 3) ? I : -I; break;
-      case 12: return (row == 0 || row == 2) ? I : -I; break;
-      case 13: return (row == 0 || row == 3) ? -1 : 1; break;
-      case 14: return (row == 0 || row == 1) ? I : -I; break;
-      case 15: return 1; break;
-      default: break;
-      }
-    }
-    return 0;
-  }
-
   template <int GAMMA> __device__ __forceinline__ int gamma_index(int row)
   {
     switch (GAMMA) {
@@ -342,7 +248,8 @@ namespace contract
     return -1;
   }
 
-  template <int GAMMA, bool TRANSPOSE, typename F> __device__ __forceinline__ const Complex<F> gamma_data(int row)
+  template <int GAMMA, typename F, bool TRANSPOSE = false>
+  __device__ __forceinline__ const Complex<F> gamma_data(int row)
   {
     const Complex<F> I(0.0, 1.0);
     if constexpr (!TRANSPOSE) {

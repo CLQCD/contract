@@ -40,7 +40,7 @@ namespace contract
     int l = ml % Ns;
     T gamma5_m_l = 1 - 2 * ((m >> 1) ^ (l >> 1)); // Special case for Ns = 4
     int k = gamma_index(gamma_kl, l);
-    T gamma_kl_data = gamma_data<true, F>(gamma_kl, l);
+    T gamma_kl_data = gamma_data<F>(gamma_kl, k);
 
     // ik @ kl, ij @ jm
     for_abc_def
@@ -51,7 +51,7 @@ namespace contract
         int ik = i * Ns + k;
         int jm = j * Ns + m;
         tmp_color = epsilon_abc_def(propag_i[ik], propag_j[jm]);
-        tmp += gamma_data<false, F>(GAMMA_IJ, i) * tmp_color;
+        tmp += gamma_data<F>(GAMMA_IJ, i) * tmp_color;
       }
       diquark[ml][ad] = gamma5_m_l * conj(gamma_kl_data * tmp);
     }

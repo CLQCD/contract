@@ -49,9 +49,9 @@ namespace contract
     int i = il / Ns;
     int l = il % Ns;
     int j = gamma_index(gamma_ij, i);
-    T gamma_ij_data = gamma_data<SWAP_IJ, F>(gamma_ij, i);
+    T gamma_ij_data = gamma_data<F, SWAP_IJ>(gamma_ij, i);
     int k = gamma_index(gamma_kl, l);
-    T gamma_kl_data = gamma_data<!SWAP_KL, F>(gamma_kl, l);
+    T gamma_kl_data = gamma_data<F, SWAP_KL>(gamma_kl, k);
     int ik = i * Ns + k;
     int jl = j * Ns + l;
     if constexpr (CONTRACT == IK_JL_NM || CONTRACT == IL_JK_NM) {
